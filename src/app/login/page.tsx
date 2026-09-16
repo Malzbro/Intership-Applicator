@@ -13,7 +13,7 @@ export default function LoginPage() {
     const reason = new URLSearchParams(window.location.search).get("error");
     if (reason) {
       setError(
-        `That link didn't work (${reason}). Links expire after one use and must be opened in the same browser you requested them from. Send a fresh one below.`
+        `Sign-in didn't work (${reason}). Email links expire after one use and must be opened in the same browser you requested them from.`
       );
     }
   }, []);
@@ -59,6 +59,18 @@ export default function LoginPage() {
             {busy ? "Sending…" : "Send magic link"}
           </button>
           {error && <p className="text-sm text-red-600">{error}</p>}
+        </form>
+      )}
+
+      {process.env.NODE_ENV === "development" && (
+        <form action="/auth/dev-login" method="post" className="mt-8 border-t border-stone-300 dark:border-stone-800 pt-6">
+          <p className="text-xs text-stone-500 mb-2">
+            Local development only — signs in the account set as DEV_LOGIN_EMAIL
+            without sending an email.
+          </p>
+          <button className="w-full rounded border border-stone-400 dark:border-stone-600 py-2 text-sm">
+            Dev sign-in (no email)
+          </button>
         </form>
       )}
     </div>
