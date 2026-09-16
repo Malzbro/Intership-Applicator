@@ -1,10 +1,14 @@
 import type { NormalisedJob, SourceAdapter } from "@/lib/types";
 
+// Summer-internship phrasing leads; placement terms stay so year-long roles
+// still land in the pool, ranked below by the profile's type preference.
 const SEARCH_TERMS = [
+  "electrical engineering summer internship",
+  "electronic engineering summer internship",
+  "engineering summer internship",
+  "engineering intern summer",
   "electrical engineering internship",
   "electronic engineering placement",
-  "engineering industrial placement",
-  "engineering summer internship",
 ];
 
 export const adzuna: SourceAdapter = {

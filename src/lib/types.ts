@@ -61,6 +61,7 @@ export type Critique = {
 export type MatchReasons = {
   hard_filters: string[];
   keyword_hits: { keyword: string; weight: number; evidence: string }[];
+  preference: string[];
   summary: string;
 };
 

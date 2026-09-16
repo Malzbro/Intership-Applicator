@@ -27,6 +27,7 @@ export default async function RootLayout({
             {user && (
               <>
                 <Link href="/cv" className="hover:underline">CV</Link>
+                <Link href="/profile" className="hover:underline">Profile</Link>
                 <Link href="/queue" className="hover:underline">Queue</Link>
                 <Link href="/applications" className="hover:underline">Applications</Link>
                 <Link href="/companies" className="hover:underline">Companies</Link>

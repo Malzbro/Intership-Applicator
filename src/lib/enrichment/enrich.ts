@@ -1,7 +1,9 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { claudeJson, MODEL } from "@/lib/anthropic";
+import { claudeJson } from "@/lib/anthropic";
+import { looksLikeAgency } from "@/lib/classify";
 import { embedOne } from "@/lib/embeddings";
 import { fetchCachedPage } from "./fetchPage";
+import { resolveDomain } from "./resolveDomain";
 
 const CAREERS_PATHS = ["/careers", "/careers/", "/jobs", "/join-us", "/about/careers", "/vacancies", "/work-with-us"];
 const ABOUT_PATHS = ["/about", "/about-us", "/company", "/who-we-are"];
@@ -33,13 +35,28 @@ export async function enrichCompany(
   company: { id: string; name: string; domain: string | null }
 ) {
   try {
-    if (!company.domain) {
-      await db.from("companies")
-        .update({ enriched_at: new Date().toISOString(), enrich_error: "no domain" })
+    let domain = company.domain;
+    if (!domain) {
+      domain = await resolveDomain(company.name);
+      if (!domain) {
+        await db.from("companies")
+          .update({ enriched_at: new Date().toISOString(), enrich_error: "domain unresolved" })
+          .eq("id", company.id);
+        return;
+      }
+      // another row may already own this domain (same employer, two boards)
+      const { error: domainError } = await db
+        .from("companies")
+        .update({ domain })
         .eq("id", company.id);
-      return;
+      if (domainError) {
+        await db.from("companies")
+          .update({ enriched_at: new Date().toISOString(), enrich_error: `duplicate domain ${domain}` })
+          .eq("id", company.id);
+        return;
+      }
     }
-    const origin = `https://${company.domain}`;
+    const origin = `https://${domain}`;
 
     const pages: { url: string; kind: string; text: string }[] = [];
     let atsFound: { type: string; slug: string } | null = null;
@@ -91,6 +108,7 @@ Every values/news entry MUST quote text present in the provided pages and cite t
     await db.from("companies").update({
       ats_type: atsFound?.type ?? undefined,
       ats_slug: atsFound?.slug ?? undefined,
+      is_agency: looksLikeAgency(company.name, summaryData?.summary),
       summary: summaryData?.summary ?? null,
       values: summaryData?.values ?? null,
       recent_news: summaryData?.recent_news ?? null,

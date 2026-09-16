@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
+import { PLACEMENT_TYPE_LABELS, type PlacementType } from "@/lib/classify";
 import type { MatchReasons } from "@/lib/types";
 
 type QueueItem = {
@@ -13,7 +14,8 @@ type QueueItem = {
   jobs: {
     id: string; title: string; url: string | null; location: string | null;
     salary: string | null; closes_at: string | null; description: string | null;
-    companies: { name: string; summary: string | null } | null;
+    placement_type: PlacementType | null;
+    companies: { name: string; summary: string | null; is_agency: boolean } | null;
   };
 };
 
@@ -27,6 +29,8 @@ export default function QueuePage() {
   const [loading, setLoading] = useState(true);
   const [expanded, setExpanded] = useState<string | null>(null);
   const [dismissing, setDismissing] = useState<string | null>(null);
+  const [summerOnly, setSummerOnly] = useState(false);
+  const [hideAgencies, setHideAgencies] = useState(false);
 
   const load = useCallback(async () => {
     const supabase = createClient();
@@ -36,7 +40,7 @@ export default function QueuePage() {
     const { data } = await supabase
       .from("matches")
       .select(
-        "id, score, vector_score, rule_score, reasons, jobs(id, title, url, location, salary, closes_at, description, companies(name, summary))"
+        "id, score, vector_score, rule_score, reasons, jobs(id, title, url, location, salary, closes_at, description, placement_type, companies(name, summary, is_agency))"
       )
       .eq("dismissed", false)
       .order("score", { ascending: false })
@@ -63,11 +67,32 @@ export default function QueuePage() {
 
   if (loading) return <p className="text-sm text-stone-500">Loading queue…</p>;
 
+  const visible = items.filter(
+    (m) =>
+      (!summerOnly || m.jobs.placement_type === "summer") &&
+      (!hideAgencies || !m.jobs.companies?.is_agency)
+  );
+
   return (
     <div className="space-y-4 max-w-3xl">
-      <div className="flex items-baseline justify-between">
+      <div className="flex items-baseline justify-between gap-4 flex-wrap">
         <h1 className="text-2xl font-semibold">Review queue</h1>
-        <span className="text-sm text-stone-500">{items.length} to review</span>
+        <span className="text-sm text-stone-500">
+          {visible.length} shown{visible.length !== items.length && ` of ${items.length}`}
+        </span>
+      </div>
+
+      <div className="flex gap-4 text-sm">
+        <label className="flex items-center gap-1.5">
+          <input type="checkbox" checked={summerOnly}
+            onChange={(e) => setSummerOnly(e.target.checked)} />
+          Summer internships only
+        </label>
+        <label className="flex items-center gap-1.5">
+          <input type="checkbox" checked={hideAgencies}
+            onChange={(e) => setHideAgencies(e.target.checked)} />
+          Hide recruitment agencies
+        </label>
       </div>
 
       {items.length === 0 && (
@@ -77,7 +102,7 @@ export default function QueuePage() {
         </p>
       )}
 
-      {items.map((m) => (
+      {visible.map((m) => (
         <div
           key={m.id}
           className="rounded border border-stone-300 dark:border-stone-800 bg-white dark:bg-stone-900 p-4"
@@ -85,6 +110,24 @@ export default function QueuePage() {
           <div className="flex items-start justify-between gap-4">
             <div>
               <h2 className="font-medium">{m.jobs.title}</h2>
+              <div className="flex flex-wrap gap-1.5 my-1">
+                {m.jobs.placement_type && (
+                  <span
+                    className={`rounded px-1.5 py-0.5 text-xs font-medium ${
+                      m.jobs.placement_type === "summer"
+                        ? "bg-green-100 text-green-900 dark:bg-green-900 dark:text-green-100"
+                        : "bg-stone-200 text-stone-700 dark:bg-stone-800 dark:text-stone-300"
+                    }`}
+                  >
+                    {PLACEMENT_TYPE_LABELS[m.jobs.placement_type]}
+                  </span>
+                )}
+                {m.jobs.companies?.is_agency && (
+                  <span className="rounded bg-amber-100 text-amber-900 dark:bg-amber-900 dark:text-amber-100 px-1.5 py-0.5 text-xs font-medium">
+                    Recruitment agency
+                  </span>
+                )}
+              </div>
               <p className="text-sm text-stone-500">
                 {m.jobs.companies?.name ?? "Unknown company"}
                 {m.jobs.location ? ` · ${m.jobs.location}` : ""}
@@ -103,6 +146,11 @@ export default function QueuePage() {
           </div>
 
           <p className="mt-2 text-sm">{m.reasons?.summary}</p>
+          {m.reasons?.preference?.length > 0 && (
+            <ul className="mt-1 text-xs text-stone-500">
+              {m.reasons.preference.map((n, i) => <li key={i}>• {n}</li>)}
+            </ul>
+          )}
           {m.reasons?.keyword_hits?.length > 0 && (
             <div className="mt-2 flex flex-wrap gap-1">
               {m.reasons.keyword_hits.map((h, i) => (

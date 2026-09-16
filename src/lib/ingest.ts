@@ -1,6 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { NormalisedJob } from "@/lib/types";
 import { dedupeHash, normaliseDomain } from "@/lib/dedupe";
+import { classifyPlacement, looksLikeAgency } from "@/lib/classify";
 import { adapters } from "@/lib/sources";
 
 export async function runSource(
@@ -90,10 +91,14 @@ function startOfRun(iso: string): string {
 
 async function upsertCompany(db: SupabaseClient, job: NormalisedJob): Promise<string | null> {
   const domain = normaliseDomain(job.company_domain);
+  const isAgency = looksLikeAgency(job.company_name);
   if (domain) {
     const { data } = await db
       .from("companies")
-      .upsert({ name: job.company_name, domain }, { onConflict: "domain" })
+      .upsert(
+        { name: job.company_name, domain, is_agency: isAgency },
+        { onConflict: "domain" }
+      )
       .select("id")
       .single();
     return data?.id ?? null;
@@ -107,7 +112,7 @@ async function upsertCompany(db: SupabaseClient, job: NormalisedJob): Promise<st
   if (existing) return existing.id;
   const { data } = await db
     .from("companies")
-    .insert({ name: job.company_name })
+    .insert({ name: job.company_name, is_agency: isAgency })
     .select("id")
     .single();
   return data?.id ?? null;
@@ -138,6 +143,7 @@ async function upsertJob(
     source: job.source,
     source_ref: job.source_ref,
     title: job.title,
+    placement_type: classifyPlacement(job.title, job.description),
     url: job.url,
     location: job.location,
     remote: job.remote,

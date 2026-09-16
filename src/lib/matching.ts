@@ -1,5 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { MatchReasons, ParsedCv } from "@/lib/types";
+import { classifyPlacement, PLACEMENT_TYPE_LABELS, type PlacementType } from "@/lib/classify";
 import { embed, embedOne } from "@/lib/embeddings";
 import { cvToEmbeddingText } from "@/lib/cvparse";
 
@@ -40,6 +41,40 @@ export function hardFilter(job: {
     return { pass: false, notes: ["visa/right-to-work restriction in listing"] };
   }
   return { pass: true, notes };
+}
+
+// ---------- preference weighting ----------
+// A non-preferred type is demoted, never dropped: a good year-long placement
+// should still be visible below the summer roles, not silently discarded.
+const OFF_PREFERENCE_FACTOR = 0.6;
+const UNKNOWN_TYPE_FACTOR = 0.9;
+const AGENCY_FACTOR = 0.75;
+
+export function preferenceFactor(opts: {
+  placementType: PlacementType | null;
+  preferredTypes: string[];
+  isAgency: boolean;
+}): { factor: number; notes: string[] } {
+  const notes: string[] = [];
+  let factor = 1;
+
+  if (opts.preferredTypes.length > 0) {
+    if (!opts.placementType) {
+      factor *= UNKNOWN_TYPE_FACTOR;
+      notes.push("type unclear from listing");
+    } else if (opts.preferredTypes.includes(opts.placementType)) {
+      notes.push(`${PLACEMENT_TYPE_LABELS[opts.placementType]} — matches your preference`);
+    } else {
+      factor *= OFF_PREFERENCE_FACTOR;
+      notes.push(`${PLACEMENT_TYPE_LABELS[opts.placementType]} — outside your preference`);
+    }
+  }
+
+  if (opts.isAgency) {
+    factor *= AGENCY_FACTOR;
+    notes.push("posted by a recruitment agency — no employer to research");
+  }
+  return { factor, notes };
 }
 
 // ---------- rule score ----------
@@ -142,10 +177,13 @@ export async function computeMatches(db: SupabaseClient, profileId: string) {
 
   const { data: jobs } = await db
     .from("jobs")
-    .select("id, title, description, requirements, location, closes_at")
+    .select(
+      "id, title, description, requirements, location, closes_at, placement_type, companies(is_agency)"
+    )
     .eq("is_open", true)
     .limit(2000);
 
+  const preferredTypes = (profile.preferred_types ?? []) as string[];
   let computed = 0;
   for (const job of jobs ?? []) {
     const hf = hardFilter(job, profile);
@@ -154,11 +192,24 @@ export async function computeMatches(db: SupabaseClient, profileId: string) {
     const jobText = `${job.title} ${job.requirements ?? ""} ${job.description ?? ""}`;
     const rules = ruleScore(jobText, cv);
     const vec = vectorScores.get(job.id) ?? 0.5;
-    const score = 0.45 * vec + 0.55 * rules.score;
+
+    const company = job.companies as unknown as { is_agency: boolean } | null;
+    const placementType =
+      (job.placement_type as PlacementType | null) ??
+      classifyPlacement(job.title, job.description);
+    const pref = preferenceFactor({
+      placementType,
+      preferredTypes,
+      isAgency: company?.is_agency ?? false,
+    });
+
+    const base = 0.45 * vec + 0.55 * rules.score;
+    const score = base * pref.factor;
 
     const reasons: MatchReasons = {
       hard_filters: hf.notes,
       keyword_hits: rules.hits,
+      preference: pref.notes,
       summary: rules.hits.length
         ? `Matched on ${rules.hits.slice(0, 3).map((h) => h.keyword).join(", ")}; vector similarity ${(vec * 100).toFixed(0)}%.`
         : `Passed filters; vector similarity ${(vec * 100).toFixed(0)}% but no specific keyword overlap.`,
