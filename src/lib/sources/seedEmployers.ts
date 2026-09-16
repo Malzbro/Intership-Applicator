@@ -1,91 +1,102 @@
-// UK engineering employers worth pulling directly. Seeding these lets
-// enrichment resolve each domain and detect its ATS; once an ATS is found the
-// Greenhouse/Lever/Ashby/Workable adapters pull that employer's complete live
-// board as structured JSON — strictly better than scraping an aggregator's
-// index of the same postings.
+import type { Sector } from "@/lib/sectors";
+
+// UK engineering and technology employers worth pulling directly. Seeding these
+// lets enrichment resolve each domain and detect its job board; once found, the
+// board adapters pull that employer's complete live list as structured data.
+// Their sector is known, so they skip model classification.
 //
 // A name here is a candidate, not a claim: nothing is written to jobs until
 // the employer's own board or an API returns it.
 
-export const SEED_EMPLOYERS: { name: string; domain?: string }[] = [
-  // aerospace & defence
-  { name: "MBDA", domain: "mbda-systems.com" },
-  { name: "BAE Systems", domain: "baesystems.com" },
-  { name: "Leonardo UK", domain: "leonardo.com" },
-  { name: "Thales UK", domain: "thalesgroup.com" },
-  { name: "Rolls-Royce", domain: "rolls-royce.com" },
-  { name: "Airbus UK", domain: "airbus.com" },
-  { name: "Raytheon UK", domain: "raytheon.com" },
-  { name: "QinetiQ", domain: "qinetiq.com" },
-  { name: "Reaction Engines", domain: "reactionengines.co.uk" },
-  { name: "Oxford Space Systems", domain: "oxford.space" },
+type Seed = { name: string; domain?: string; sector: Sector };
+
+const E = "engineering", T = "technology", I = "infrastructure", F = "finance_tech";
+
+export const SEED_EMPLOYERS: Seed[] = [
+  // aerospace, defence & space
+  { name: "Airbus UK", domain: "airbus.com", sector: E },
+  { name: "BAE Systems", domain: "baesystems.com", sector: E },
+  { name: "MBDA", domain: "mbda-systems.com", sector: E },
+  { name: "Rolls-Royce", domain: "rolls-royce.com", sector: E },
+  { name: "Leonardo UK", domain: "leonardo.com", sector: E },
+  { name: "Thales UK", domain: "thalesgroup.com", sector: E },
+  { name: "Raytheon UK", domain: "raytheon.com", sector: E },
+  { name: "QinetiQ", domain: "qinetiq.com", sector: E },
+  { name: "GKN Aerospace", domain: "gknaerospace.com", sector: E },
+  { name: "Boeing", domain: "boeing.com", sector: E },
+  { name: "Reaction Engines", domain: "reactionengines.co.uk", sector: E },
+  { name: "Surrey Satellite Technology", domain: "sstl.co.uk", sector: E },
+  { name: "Oxford Space Systems", domain: "oxford.space", sector: E },
+  { name: "Skyrora", domain: "skyrora.com", sector: E },
+
+  // automotive & motorsport
+  { name: "JLR", domain: "jaguarlandrover.com", sector: E },
+  { name: "McLaren", domain: "mclaren.com", sector: E },
+  { name: "Aston Martin", domain: "astonmartin.com", sector: E },
+  { name: "Bentley Motors", domain: "bentleymotors.com", sector: E },
+  { name: "Nissan UK", domain: "nissan.co.uk", sector: E },
+  { name: "Mercedes-AMG High Performance Powertrains", domain: "mercedes-amg-hpp.com", sector: E },
+  { name: "Alpine Racing", domain: "alpinecars.co.uk", sector: E },
+  { name: "Williams Racing", domain: "williamsf1.com", sector: E },
+  { name: "Red Bull Powertrains", domain: "redbullracing.com", sector: E },
+  { name: "Cosworth", domain: "cosworth.com", sector: E },
+  { name: "Ricardo", domain: "ricardo.com", sector: E },
+  { name: "Triumph Motorcycles", domain: "triumphmotorcycles.co.uk", sector: E },
 
   // semiconductors & electronics
-  { name: "Arm", domain: "arm.com" },
-  { name: "Imagination Technologies", domain: "imaginationtech.com" },
-  { name: "Nordic Semiconductor", domain: "nordicsemi.com" },
-  { name: "Renesas", domain: "renesas.com" },
-  { name: "Infineon", domain: "infineon.com" },
-  { name: "Analog Devices", domain: "analog.com" },
-  { name: "Texas Instruments", domain: "ti.com" },
-  { name: "Nexperia", domain: "nexperia.com" },
-  { name: "Graphcore", domain: "graphcore.ai" },
-  { name: "XMOS", domain: "xmos.com" },
+  { name: "Arm", domain: "arm.com", sector: T },
+  { name: "Imagination Technologies", domain: "imaginationtech.com", sector: T },
+  { name: "Graphcore", domain: "graphcore.ai", sector: T },
+  { name: "Nordic Semiconductor", domain: "nordicsemi.com", sector: E },
+  { name: "Renesas", domain: "renesas.com", sector: E },
+  { name: "Infineon", domain: "infineon.com", sector: E },
+  { name: "Analog Devices", domain: "analog.com", sector: E },
+  { name: "Texas Instruments", domain: "ti.com", sector: E },
+  { name: "Nexperia", domain: "nexperia.com", sector: E },
+  { name: "XMOS", domain: "xmos.com", sector: E },
+  { name: "Cirrus Logic", domain: "cirrus.com", sector: E },
 
-  // instruments, metrology, industrial
-  { name: "Renishaw", domain: "renishaw.com" },
-  { name: "Dyson", domain: "dyson.com" },
-  { name: "Siemens UK", domain: "siemens.com" },
-  { name: "ABB UK", domain: "abb.com" },
-  { name: "Schneider Electric UK", domain: "se.com" },
-  { name: "Eaton", domain: "eaton.com" },
-  { name: "Emerson", domain: "emerson.com" },
-  { name: "Honeywell UK", domain: "honeywell.com" },
-  { name: "Oxford Instruments", domain: "oxinst.com" },
-  { name: "Spectris", domain: "spectris.com" },
+  // instruments, industrial & robotics
+  { name: "Renishaw", domain: "renishaw.com", sector: E },
+  { name: "Dyson", domain: "dyson.com", sector: E },
+  { name: "Siemens UK", domain: "siemens.com", sector: E },
+  { name: "ABB UK", domain: "abb.com", sector: E },
+  { name: "Schneider Electric UK", domain: "se.com", sector: E },
+  { name: "Eaton", domain: "eaton.com", sector: E },
+  { name: "Oxford Instruments", domain: "oxinst.com", sector: E },
+  { name: "Spectris", domain: "spectris.com", sector: E },
+  { name: "Ocado Technology", domain: "ocadogroup.com", sector: T },
+  { name: "Cambridge Consultants", domain: "cambridgeconsultants.com", sector: E },
+  { name: "TTP", domain: "ttp.com", sector: E },
+  { name: "PA Consulting", domain: "paconsulting.com", sector: E },
 
-  // energy, power & grid
-  { name: "National Grid", domain: "nationalgrid.com" },
-  { name: "SSE", domain: "sse.com" },
-  { name: "EDF Energy", domain: "edfenergy.com" },
-  { name: "Octopus Energy", domain: "octopus.energy" },
-  { name: "Orsted UK", domain: "orsted.co.uk" },
-  { name: "Tokamak Energy", domain: "tokamakenergy.com" },
-  { name: "First Light Fusion", domain: "firstlightfusion.com" },
-  { name: "Ceres Power", domain: "cerespower.com" },
-  { name: "ITM Power", domain: "itm-power.com" },
+  // energy technology
+  { name: "Tokamak Energy", domain: "tokamakenergy.com", sector: E },
+  { name: "First Light Fusion", domain: "firstlightfusion.com", sector: E },
+  { name: "UK Atomic Energy Authority", sector: E },
+  { name: "Ceres Power", domain: "cerespower.com", sector: E },
+  { name: "ITM Power", domain: "itm-power.com", sector: E },
+  { name: "Octopus Energy", domain: "octopus.energy", sector: T },
 
-  // automotive & EV
-  { name: "JLR", domain: "jaguarlandrover.com" },
-  { name: "McLaren", domain: "mclaren.com" },
-  { name: "Aston Martin", domain: "astonmartin.com" },
-  { name: "Mercedes-AMG High Performance Powertrains", domain: "mercedes-amg-hpp.com" },
-  { name: "Alpine Racing", domain: "alpinecars.co.uk" },
-  { name: "Williams Racing", domain: "williamsf1.com" },
-  { name: "Cosworth", domain: "cosworth.com" },
-  { name: "Delta Cosworth", domain: "deltacosworth.com" },
-  { name: "Arrival", domain: "arrival.com" },
-  { name: "Wayve", domain: "wayve.ai" },
+  // grid, utilities & infrastructure
+  { name: "National Grid", domain: "nationalgrid.com", sector: I },
+  { name: "SSE", domain: "sse.com", sector: I },
+  { name: "EDF Energy", domain: "edfenergy.com", sector: I },
+  { name: "Network Rail", domain: "networkrail.co.uk", sector: I },
+  { name: "Siemens Mobility UK", domain: "mobility.siemens.com", sector: E },
+  { name: "Alstom UK", domain: "alstom.com", sector: E },
+  { name: "Arup", domain: "arup.com", sector: I },
+  { name: "Atkins", domain: "atkinsrealis.com", sector: I },
+  { name: "Mott MacDonald", domain: "mottmac.com", sector: I },
 
-  // rail & infrastructure
-  { name: "Network Rail", domain: "networkrail.co.uk" },
-  { name: "Siemens Mobility UK", domain: "mobility.siemens.com" },
-  { name: "Alstom UK", domain: "alstom.com" },
-  { name: "Atkins", domain: "atkinsrealis.com" },
-  { name: "Arup", domain: "arup.com" },
-  { name: "Mott MacDonald", domain: "mottmac.com" },
+  // tech & AI
+  { name: "Google DeepMind", domain: "deepmind.google", sector: T },
+  { name: "Wayve", domain: "wayve.ai", sector: T },
+  { name: "Scale AI", domain: "scale.com", sector: T },
+  { name: "BT Group", domain: "bt.com", sector: T },
+  { name: "Vodafone UK", domain: "vodafone.co.uk", sector: T },
 
-  // medical & scientific instruments
-  { name: "GE HealthCare UK", domain: "gehealthcare.co.uk" },
-  { name: "Smith+Nephew", domain: "smith-nephew.com" },
-  { name: "PA Consulting", domain: "paconsulting.com" },
-  { name: "TTP", domain: "ttp.com" },
-  { name: "Cambridge Consultants", domain: "cambridgeconsultants.com" },
-  { name: "Dephy", domain: "dephy.com" },
-
-  // telecoms & networks
-  { name: "BT Group", domain: "bt.com" },
-  { name: "Vodafone UK", domain: "vodafone.co.uk" },
-  { name: "Viavi Solutions", domain: "viavisolutions.com" },
-  { name: "Ofcom", domain: "ofcom.org.uk" },
+  // finance tech
+  { name: "Jane Street", domain: "janestreet.com", sector: F },
+  { name: "Citadel Securities", domain: "citadelsecurities.com", sector: F },
 ];

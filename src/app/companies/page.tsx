@@ -3,12 +3,15 @@
 import { useCallback, useEffect, useState } from "react";
 import { PageHeader, Status } from "@/components/ui";
 import { createClient } from "@/lib/supabase/client";
+import { SECTOR_LABELS, type Sector } from "@/lib/sectors";
 
 type Company = {
   id: string; name: string; domain: string | null; hq_region: string | null;
   ats_type: string | null; summary: string | null; enriched_at: string | null;
-  sic_codes: string[] | null;
+  sic_codes: string[] | null; sector: Sector | null; sector_note: string | null;
 };
+
+const WANTED = new Set<Sector>(["engineering", "technology", "finance_tech", "infrastructure"]);
 
 const ATS_LABEL: Record<string, string> = {
   workday: "Workday", greenhouse: "Greenhouse", lever: "Lever", ashby: "Ashby", workable: "Workable",
@@ -26,7 +29,7 @@ export default function CompaniesPage() {
     const supabase = createClient();
     const { data } = await supabase
       .from("companies")
-      .select("id, name, domain, hq_region, ats_type, summary, enriched_at, sic_codes")
+      .select("id, name, domain, hq_region, ats_type, summary, enriched_at, sic_codes, sector, sector_note")
       .order("created_at", { ascending: false })
       .limit(300);
     setCompanies((data ?? []) as Company[]);
@@ -151,7 +154,8 @@ export default function CompaniesPage() {
             <table className="table">
               <thead>
                 <tr>
-                  <th className="w-[40%]">Company</th>
+                  <th className="w-[36%]">Company</th>
+                  <th>Sector</th>
                   <th>Website</th>
                   <th>Region</th>
                   <th>Job board</th>
@@ -163,7 +167,16 @@ export default function CompaniesPage() {
                   <tr key={c.id} className="transition-colors hover:bg-surface-2/40">
                     <td>
                       <div className="font-medium">{c.name}</div>
-                      {c.summary && <p className="mt-0.5 line-clamp-2 max-w-[56ch] text-[13px] text-muted">{c.summary}</p>}
+                      {(c.summary ?? c.sector_note) && (
+                        <p className="mt-0.5 line-clamp-2 max-w-[56ch] text-[13px] text-muted">{c.summary ?? c.sector_note}</p>
+                      )}
+                    </td>
+                    <td className="whitespace-nowrap">
+                      {c.sector ? (
+                        <span className={`chip ${WANTED.has(c.sector) ? "chip-accent" : ""}`}>{SECTOR_LABELS[c.sector]}</span>
+                      ) : (
+                        <span className="text-subtle">—</span>
+                      )}
                     </td>
                     <td><DomainCell company={c} onSaved={load} /></td>
                     <td className="text-muted">{c.hq_region ?? "—"}</td>

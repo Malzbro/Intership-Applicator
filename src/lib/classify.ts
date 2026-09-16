@@ -32,10 +32,14 @@ const RULES: [PlacementType, RegExp][] = [
 // In a description the generic words are unreliable: agencies call every job
 // a "placement", and "student" turns up in benefits blurbs. There, only an
 // explicit internship phrase counts as an unspecified internship.
-const BODY_RULES: [PlacementType, RegExp][] = RULES.map(([type, re]) =>
-  type === "internship_other"
-    ? [type, /\binternship\b|\bintern programme\b|\bundergraduate (placement|internship)\b|\bstudent placement\b/i]
-    : [type, re]
+// "Apprentice" in a description is usually about who the job trains or
+// supervises (tutors, assessors), so apprenticeships are recognised from the
+// title only.
+const BODY_RULES: [PlacementType, RegExp][] = RULES.filter(([type]) => type !== "apprenticeship").map(
+  ([type, re]) =>
+    type === "internship_other"
+      ? [type, /\binternship\b|\bintern programme\b|\bundergraduate (placement|internship)\b|\bstudent placement\b/i]
+      : [type, re]
 );
 
 export function classifyPlacement(

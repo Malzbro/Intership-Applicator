@@ -6,6 +6,7 @@ import { ArrowUpRightIcon, SparkIcon } from "@/components/icons";
 import { EmptyState, PageHeader, SkeletonCards } from "@/components/ui";
 import { createClient } from "@/lib/supabase/client";
 import { PLACEMENT_TYPE_LABELS, type PlacementType } from "@/lib/classify";
+import { SECTOR_LABELS, type Sector } from "@/lib/sectors";
 import type { MatchReasons } from "@/lib/types";
 
 type QueueItem = {
@@ -18,7 +19,7 @@ type QueueItem = {
     id: string; title: string; url: string | null; location: string | null;
     salary: string | null; closes_at: string | null; description: string | null;
     placement_type: PlacementType | null;
-    companies: { name: string; summary: string | null; is_agency: boolean } | null;
+    companies: { id: string; name: string; summary: string | null; is_agency: boolean; sector: Sector | null } | null;
   };
 };
 
@@ -39,7 +40,7 @@ export default function QueuePage() {
   const [expanded, setExpanded] = useState<string | null>(null);
   const [dismissing, setDismissing] = useState<string | null>(null);
   const [summerOnly, setSummerOnly] = useState(false);
-  const [hideAgencies, setHideAgencies] = useState(false);
+  const [hiddenNotice, setHiddenNotice] = useState<{ id: string; name: string; count: number } | null>(null);
 
   const load = useCallback(async () => {
     const supabase = createClient();
@@ -49,7 +50,7 @@ export default function QueuePage() {
     const { data } = await supabase
       .from("matches")
       .select(
-        "id, score, vector_score, rule_score, reasons, jobs(id, title, url, location, salary, closes_at, description, placement_type, companies(name, summary, is_agency))"
+        "id, score, vector_score, rule_score, reasons, jobs(id, title, url, location, salary, closes_at, description, placement_type, companies(id, name, summary, is_agency, sector))"
       )
       .eq("dismissed", false)
       .order("score", { ascending: false })
@@ -72,11 +73,24 @@ export default function QueuePage() {
     });
   }
 
-  const visible = items.filter(
-    (m) =>
-      (!summerOnly || m.jobs.placement_type === "summer") &&
-      (!hideAgencies || !m.jobs.companies?.is_agency)
-  );
+  async function setCompanyHidden(company: { id: string; name: string }, hidden: boolean) {
+    setDismissing(null);
+    if (hidden) {
+      const count = items.filter((i) => i.jobs.companies?.id === company.id).length;
+      setItems((prev) => prev.filter((i) => i.jobs.companies?.id !== company.id));
+      setHiddenNotice({ ...company, count });
+    } else {
+      setHiddenNotice(null);
+    }
+    await fetch("/api/companies/hide", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ companyId: company.id, hidden }),
+    });
+    if (!hidden) await load();
+  }
+
+  const visible = items.filter((m) => !summerOnly || m.jobs.placement_type === "summer");
 
   return (
     <>
@@ -90,15 +104,25 @@ export default function QueuePage() {
         <button type="button" className="toggle" aria-pressed={summerOnly} onClick={() => setSummerOnly(!summerOnly)}>
           Summer internships only
         </button>
-        <button type="button" className="toggle" aria-pressed={hideAgencies} onClick={() => setHideAgencies(!hideAgencies)}>
-          Hide recruitment agencies
-        </button>
+        <a href="/profile#employers" className="btn btn-ghost btn-sm">Employer types</a>
         {!loading && items.length > 0 && (
           <span className="ml-auto font-mono text-[13px] text-muted tabular-nums">
             {visible.length}{visible.length !== items.length && ` / ${items.length}`} roles
           </span>
         )}
       </div>
+
+      {hiddenNotice && (
+        <div className="card mb-4 flex flex-wrap items-center gap-3 px-5 py-3 text-sm">
+          <span>
+            Hid <strong className="font-semibold">{hiddenNotice.name}</strong>
+            {hiddenNotice.count > 0 && ` and its ${hiddenNotice.count} role${hiddenNotice.count === 1 ? "" : "s"}`}.
+          </span>
+          <button onClick={() => setCompanyHidden(hiddenNotice, false)} className="btn btn-ghost btn-xs ml-auto">
+            Undo
+          </button>
+        </div>
+      )}
 
       {loading ? (
         <SkeletonCards count={4} height="h-40" />
@@ -128,6 +152,7 @@ export default function QueuePage() {
                   <h2 className="mt-2 text-base font-semibold leading-snug tracking-[-0.01em]">{m.jobs.title}</h2>
                   <p className="mt-0.5 text-[13.5px] text-muted">
                     <span className="font-medium text-fg/85">{m.jobs.companies?.name ?? "Unknown company"}</span>
+                    {m.jobs.companies?.sector && <> · {SECTOR_LABELS[m.jobs.companies.sector]}</>}
                     {m.jobs.location && <> · {m.jobs.location}</>}
                     {m.jobs.salary && <> · {m.jobs.salary}</>}
                     {m.jobs.closes_at && (
@@ -180,6 +205,14 @@ export default function QueuePage() {
                         {r}
                       </button>
                     ))}
+                    {m.jobs.companies && (
+                      <button
+                        onClick={() => setCompanyHidden(m.jobs.companies!, true)}
+                        className="btn btn-danger btn-xs"
+                      >
+                        Hide all from {m.jobs.companies.name}
+                      </button>
+                    )}
                     <button onClick={() => setDismissing(null)} className="btn btn-ghost btn-xs">
                       Cancel
                     </button>

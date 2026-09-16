@@ -5,6 +5,7 @@ import { CheckIcon } from "@/components/icons";
 import { PageHeader } from "@/components/ui";
 import { createClient } from "@/lib/supabase/client";
 import { PLACEMENT_TYPE_LABELS, type PlacementType } from "@/lib/classify";
+import { DEFAULT_SECTORS, SECTOR_DESCRIPTIONS, SECTOR_LABELS, SELECTABLE_SECTORS, type Sector } from "@/lib/sectors";
 
 type Profile = {
   full_name: string | null;
@@ -14,6 +15,8 @@ type Profile = {
   locations: string[] | null;
   eligibility: string | null;
   preferred_types: string[] | null;
+  employer_sectors: string[] | null;
+  hidden_company_ids: string[] | null;
 };
 
 const TYPES = Object.keys(PLACEMENT_TYPE_LABELS) as PlacementType[];
@@ -24,24 +27,43 @@ export default function ProfilePage() {
   const [busy, setBusy] = useState(false);
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [hidden, setHidden] = useState<{ id: string; name: string }[]>([]);
 
   const load = useCallback(async () => {
     const supabase = createClient();
     const { data, error } = await supabase
       .from("profiles")
-      .select("full_name, course, year, grade, locations, eligibility, preferred_types")
+      .select("full_name, course, year, grade, locations, eligibility, preferred_types, employer_sectors, hidden_company_ids")
       .single();
     if (error) {
       setError(
-        /preferred_types/.test(error.message)
-          ? "Your database needs an update: run migration 0002_placement_types.sql in Supabase, then reload."
-          : error.message
+        /employer_sectors|hidden_company_ids/.test(error.message)
+          ? "Your database needs an update: run migration 0004_employer_sectors.sql in Supabase, then reload."
+          : /preferred_types/.test(error.message)
+            ? "Your database needs an update: run migration 0002_placement_types.sql in Supabase, then reload."
+            : error.message
       );
+      return;
+    }
+    setP(data as Profile);
+    setLocationsText((data?.locations ?? []).join(", "));
+    const ids = (data?.hidden_company_ids ?? []) as string[];
+    if (ids.length) {
+      const { data: cos } = await supabase.from("companies").select("id, name").in("id", ids);
+      setHidden((cos ?? []) as { id: string; name: string }[]);
     } else {
-      setP(data as Profile);
-      setLocationsText((data?.locations ?? []).join(", "));
+      setHidden([]);
     }
   }, []);
+
+  async function unhide(companyId: string) {
+    setHidden((h) => h.filter((c) => c.id !== companyId));
+    await fetch("/api/companies/hide", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ companyId, hidden: false }),
+    });
+  }
   useEffect(() => { load(); }, [load]);
 
   async function save(e: React.FormEvent) {
@@ -61,6 +83,7 @@ export default function ProfilePage() {
         locations: locationsText.split(",").map((s) => s.trim()).filter(Boolean),
         eligibility: p.eligibility,
         preferred_types: p.preferred_types ?? [],
+        employer_sectors: p.employer_sectors ?? DEFAULT_SECTORS,
       })
       .eq("id", user!.id);
     setBusy(false);
@@ -70,6 +93,12 @@ export default function ProfilePage() {
       setTimeout(() => setSaved(false), 2500);
     }
   }
+
+  const toggleSector = (s: Sector) => {
+    if (!p) return;
+    const current = p.employer_sectors ?? DEFAULT_SECTORS;
+    setP({ ...p, employer_sectors: current.includes(s) ? current.filter((x) => x !== s) : [...current, s] });
+  };
 
   const toggleType = (t: PlacementType) => {
     if (!p) return;
@@ -127,6 +156,55 @@ export default function ProfilePage() {
                 );
               })}
             </div>
+          </section>
+
+          <section id="employers" className="card card-pad scroll-mt-20">
+            <h2 className="section-title">Which employers</h2>
+            <p className="section-desc">
+              Each employer is sorted by what the company actually does, so an “engineering intern” at a
+              roof-solar installer isn&apos;t treated like one at Airbus. Only ticked types reach your queue.
+            </p>
+            <div className="mt-4 grid gap-2 sm:grid-cols-2">
+              {SELECTABLE_SECTORS.map((s) => {
+                const on = (p.employer_sectors ?? DEFAULT_SECTORS).includes(s);
+                return (
+                  <button
+                    key={s}
+                    type="button"
+                    aria-pressed={on}
+                    onClick={() => toggleSector(s)}
+                    className={`flex items-start gap-3 rounded-lg border px-3.5 py-2.5 text-left transition-colors ${
+                      on ? "border-accent/50 bg-accent-soft" : "border-border hover:border-border-strong hover:bg-surface-2/60"
+                    }`}
+                  >
+                    <span className={`mt-0.5 grid size-4 shrink-0 place-items-center rounded ${on ? "bg-accent text-on-accent" : "border border-border-strong"}`}>
+                      {on && <CheckIcon size={11} strokeWidth={2.4} />}
+                    </span>
+                    <span>
+                      <span className="block text-sm font-medium">{SECTOR_LABELS[s]}</span>
+                      <span className="block text-xs text-muted">{SECTOR_DESCRIPTIONS[s]}</span>
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+            <p className="hint mt-3">Recruitment agencies are always left out — they don&apos;t name the employer.</p>
+
+            {hidden.length > 0 && (
+              <div className="mt-5 border-t border-border pt-4">
+                <h3 className="text-[13px] font-medium">Hidden companies</h3>
+                <ul className="mt-2 flex flex-wrap gap-1.5">
+                  {hidden.map((c) => (
+                    <li key={c.id} className="chip h-7 gap-1.5 pr-1">
+                      {c.name}
+                      <button type="button" onClick={() => unhide(c.id)} className="btn btn-ghost btn-xs h-5 px-1.5">
+                        Unhide
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
           </section>
 
           <section className="card card-pad space-y-5">

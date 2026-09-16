@@ -3,6 +3,8 @@ import type { MatchReasons, ParsedCv } from "@/lib/types";
 import { classifyPlacement, PLACEMENT_TYPE_LABELS, type PlacementType } from "@/lib/classify";
 import { embed, embedOne } from "@/lib/embeddings";
 import { cvToEmbeddingText } from "@/lib/cvparse";
+import { classifyPendingCompanies } from "@/lib/sectorClassifier";
+import { DEFAULT_SECTORS } from "@/lib/sectors";
 
 // ---------- hard filters ----------
 const SENIOR_RE = /\b(senior|lead|principal|staff|head of|director|manager)\b/i;
@@ -165,18 +167,42 @@ export async function computeMatches(db: SupabaseClient, profileId: string) {
     }
   }
 
-  const { data: jobs } = await db
-    .from("jobs")
-    .select(
-      "id, title, description, requirements, location, closes_at, placement_type, companies(is_agency)"
-    )
-    .eq("is_open", true)
-    .limit(2000);
+  const JOB_FIELDS =
+    "id, company_id, title, description, requirements, location, closes_at, placement_type, companies(is_agency, sector)";
+  let { data: jobs } = await db.from("jobs").select(JOB_FIELDS).eq("is_open", true).limit(2000);
+
+  // Sector is judged per employer, and only for employers that have a student
+  // role — the non-student adverts never cost a classification call.
+  const roleCandidates = (jobs ?? []).filter((job) => hardFilter(job, profile).pass);
+  const unclassified = [
+    ...new Set(
+      roleCandidates
+        .filter((j) => j.company_id && !(j.companies as unknown as { sector: string | null } | null)?.sector)
+        .map((j) => j.company_id as string)
+    ),
+  ];
+  let sectorNote: string | null = null;
+  if (unclassified.length > 0) {
+    const res = await classifyPendingCompanies(db, { companyIds: unclassified });
+    sectorNote = res.failed;
+    ({ data: jobs } = await db.from("jobs").select(JOB_FIELDS).eq("is_open", true).limit(2000));
+  }
+
+  const wantedSectors = new Set<string>(
+    (profile.employer_sectors as string[] | null)?.length ? profile.employer_sectors : DEFAULT_SECTORS
+  );
+  const hiddenCompanies = new Set<string>((profile.hidden_company_ids as string[] | null) ?? []);
 
   // filter first, so only roles that can appear in the queue spend embedding quota
   const candidates = (jobs ?? [])
     .map((job) => ({ job, hf: hardFilter(job, profile) }))
-    .filter((c) => c.hf.pass);
+    .filter((c) => c.hf.pass)
+    .filter(({ job }) => {
+      if (job.company_id && hiddenCompanies.has(job.company_id)) return false;
+      const sector = (job.companies as unknown as { sector: string | null } | null)?.sector;
+      // an employer we couldn't classify stays visible rather than silently vanishing
+      return !sector || wantedSectors.has(sector);
+    });
 
   if (cvEmbedding && !embeddingNote) {
     const { data: unembedded } = await db
@@ -283,5 +309,13 @@ export async function computeMatches(db: SupabaseClient, profileId: string) {
     await db.from("matches").delete().in("id", stale.slice(i, i + 100));
   }
 
-  return { computed, removed: stale.length, candidates: candidates.length, embeddedJobs, embeddingNote };
+  return {
+    computed,
+    removed: stale.length,
+    candidates: candidates.length,
+    classifiedEmployers: unclassified.length,
+    sectorNote,
+    embeddedJobs,
+    embeddingNote,
+  };
 }
