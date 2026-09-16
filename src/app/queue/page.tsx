@@ -2,6 +2,8 @@
 
 import { useCallback, useEffect, useState } from "react";
 import AddJobByLink from "@/components/AddJobByLink";
+import { ArrowUpRightIcon, SparkIcon } from "@/components/icons";
+import { EmptyState, PageHeader, SkeletonCards } from "@/components/ui";
 import { createClient } from "@/lib/supabase/client";
 import { PLACEMENT_TYPE_LABELS, type PlacementType } from "@/lib/classify";
 import type { MatchReasons } from "@/lib/types";
@@ -21,9 +23,15 @@ type QueueItem = {
 };
 
 const DISMISS_REASONS = [
-  "wrong discipline", "too senior", "location", "company not appealing",
-  "deadline too soon", "duplicate", "other",
+  "Wrong discipline", "Too senior", "Location", "Company not appealing",
+  "Deadline too soon", "Duplicate", "Other",
 ];
+
+function scoreTone(score: number) {
+  if (score >= 0.6) return "text-accent-strong bg-accent-soft";
+  if (score >= 0.4) return "text-fg bg-surface-2";
+  return "text-muted bg-surface-2";
+}
 
 export default function QueuePage() {
   const [items, setItems] = useState<QueueItem[]>([]);
@@ -48,9 +56,7 @@ export default function QueuePage() {
       .limit(100);
 
     setItems(
-      ((data ?? []) as unknown as QueueItem[]).filter(
-        (m) => !appliedJobIds.has(m.jobs.id)
-      )
+      ((data ?? []) as unknown as QueueItem[]).filter((m) => !appliedJobIds.has(m.jobs.id))
     );
     setLoading(false);
   }, []);
@@ -62,11 +68,9 @@ export default function QueuePage() {
     await fetch("/api/matches/decision", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ matchId, decision, reason }),
+      body: JSON.stringify({ matchId, decision, reason: reason?.toLowerCase() }),
     });
   }
-
-  if (loading) return <p className="text-sm text-stone-500">Loading queue…</p>;
 
   const visible = items.filter(
     (m) =>
@@ -75,151 +79,140 @@ export default function QueuePage() {
   );
 
   return (
-    <div className="space-y-4 max-w-3xl">
-      <div className="flex items-baseline justify-between gap-4 flex-wrap">
-        <h1 className="text-2xl font-semibold">Review queue</h1>
-        <span className="text-sm text-stone-500">
-          {visible.length} shown{visible.length !== items.length && ` of ${items.length}`}
-        </span>
-      </div>
+    <>
+      <PageHeader
+        title="Review queue"
+        description="Roles ranked against your CV and preferences. Shortlist the ones worth an application; dismissing with a reason sharpens future matches."
+        actions={<AddJobByLink />}
+      />
 
-      <AddJobByLink />
-
-      <div className="flex gap-4 text-sm">
-        <label className="flex items-center gap-1.5">
-          <input type="checkbox" checked={summerOnly}
-            onChange={(e) => setSummerOnly(e.target.checked)} />
+      <div className="mb-5 flex flex-wrap items-center gap-2">
+        <button type="button" className="toggle" aria-pressed={summerOnly} onClick={() => setSummerOnly(!summerOnly)}>
           Summer internships only
-        </label>
-        <label className="flex items-center gap-1.5">
-          <input type="checkbox" checked={hideAgencies}
-            onChange={(e) => setHideAgencies(e.target.checked)} />
+        </button>
+        <button type="button" className="toggle" aria-pressed={hideAgencies} onClick={() => setHideAgencies(!hideAgencies)}>
           Hide recruitment agencies
-        </label>
+        </button>
+        {!loading && items.length > 0 && (
+          <span className="ml-auto font-mono text-[13px] text-muted tabular-nums">
+            {visible.length}{visible.length !== items.length && ` / ${items.length}`} roles
+          </span>
+        )}
       </div>
 
-      {items.length === 0 && (
-        <p className="text-sm text-stone-500">
-          Queue is empty. New matches appear after the nightly ingest + match run,
-          or trigger <code className="text-xs">/api/cron/match</code> manually.
-        </p>
+      {loading ? (
+        <SkeletonCards count={4} height="h-40" />
+      ) : items.length === 0 ? (
+        <EmptyState icon={<SparkIcon size={18} />} title="No matches to review">
+          New matches appear after the nightly job search and matching run. You can also paste a
+          posting with <span className="font-medium text-fg">Add job by link</span>.
+        </EmptyState>
+      ) : visible.length === 0 ? (
+        <EmptyState title="Nothing matches these filters">
+          Turn a filter off to see the other {items.length} roles.
+        </EmptyState>
+      ) : (
+        <ul className="space-y-3">
+          {visible.map((m) => (
+            <li key={m.id} className="card card-interactive">
+              <div className="flex gap-5 p-5">
+                <div className="min-w-0 flex-1">
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    {m.jobs.placement_type && (
+                      <span className={`chip ${m.jobs.placement_type === "summer" ? "chip-accent" : ""}`}>
+                        {PLACEMENT_TYPE_LABELS[m.jobs.placement_type]}
+                      </span>
+                    )}
+                    {m.jobs.companies?.is_agency && <span className="chip chip-warn">Recruitment agency</span>}
+                  </div>
+                  <h2 className="mt-2 text-base font-semibold leading-snug tracking-[-0.01em]">{m.jobs.title}</h2>
+                  <p className="mt-0.5 text-[13.5px] text-muted">
+                    <span className="font-medium text-fg/85">{m.jobs.companies?.name ?? "Unknown company"}</span>
+                    {m.jobs.location && <> · {m.jobs.location}</>}
+                    {m.jobs.salary && <> · {m.jobs.salary}</>}
+                    {m.jobs.closes_at && (
+                      <> · closes {new Date(m.jobs.closes_at).toLocaleDateString("en-GB", { day: "numeric", month: "short" })}</>
+                    )}
+                  </p>
+
+                  {m.reasons?.summary && (
+                    <p className="mt-3 text-sm leading-relaxed text-fg/90 max-w-[70ch]">{m.reasons.summary}</p>
+                  )}
+                  {m.reasons?.preference?.length > 0 && (
+                    <p className="mt-1 text-[13px] text-muted">{m.reasons.preference.join(" · ")}</p>
+                  )}
+                  {m.reasons?.keyword_hits?.length > 0 && (
+                    <div className="mt-3 flex flex-wrap gap-1.5">
+                      {m.reasons.keyword_hits.map((h, i) => (
+                        <span key={i} title={h.evidence} className="chip">
+                          {h.keyword}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                <div className="flex shrink-0 flex-col items-end">
+                  <div
+                    className={`grid size-14 place-items-center rounded-xl font-mono text-lg font-medium tabular-nums ${scoreTone(m.score)}`}
+                    title={`Vector ${Math.round(m.vector_score * 100)} · rules ${Math.round(m.rule_score * 100)}`}
+                  >
+                    {Math.round(m.score * 100)}
+                  </div>
+                  <span className="mt-1 text-[11px] text-subtle">match</span>
+                </div>
+              </div>
+
+              {expanded === m.id && (
+                <div className="border-t border-border px-5 py-4">
+                  <p className="max-h-72 overflow-y-auto whitespace-pre-wrap text-sm leading-relaxed text-muted">
+                    {m.jobs.description?.slice(0, 3000) ?? "No description."}
+                  </p>
+                </div>
+              )}
+
+              <div className="flex flex-wrap items-center gap-2 border-t border-border px-5 py-3">
+                {dismissing === m.id ? (
+                  <>
+                    <span className="mr-1 text-[13px] text-muted">Why?</span>
+                    {DISMISS_REASONS.map((r) => (
+                      <button key={r} onClick={() => decide(m.id, "dismiss", r)} className="btn btn-secondary btn-xs">
+                        {r}
+                      </button>
+                    ))}
+                    <button onClick={() => setDismissing(null)} className="btn btn-ghost btn-xs">
+                      Cancel
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <button onClick={() => decide(m.id, "shortlist")} className="btn btn-primary btn-sm">
+                      Shortlist
+                    </button>
+                    <button onClick={() => setDismissing(m.id)} className="btn btn-ghost btn-sm">
+                      Dismiss
+                    </button>
+                    <div className="ml-auto flex items-center gap-1">
+                      <button
+                        onClick={() => setExpanded(expanded === m.id ? null : m.id)}
+                        className="btn btn-ghost btn-sm"
+                        aria-expanded={expanded === m.id}
+                      >
+                        {expanded === m.id ? "Hide description" : "Description"}
+                      </button>
+                      {m.jobs.url && (
+                        <a href={m.jobs.url} target="_blank" rel="noreferrer" className="btn btn-ghost btn-sm">
+                          Listing <ArrowUpRightIcon size={14} />
+                        </a>
+                      )}
+                    </div>
+                  </>
+                )}
+              </div>
+            </li>
+          ))}
+        </ul>
       )}
-
-      {visible.map((m) => (
-        <div
-          key={m.id}
-          className="rounded border border-stone-300 dark:border-stone-800 bg-white dark:bg-stone-900 p-4"
-        >
-          <div className="flex items-start justify-between gap-4">
-            <div>
-              <h2 className="font-medium">{m.jobs.title}</h2>
-              <div className="flex flex-wrap gap-1.5 my-1">
-                {m.jobs.placement_type && (
-                  <span
-                    className={`rounded px-1.5 py-0.5 text-xs font-medium ${
-                      m.jobs.placement_type === "summer"
-                        ? "bg-green-100 text-green-900 dark:bg-green-900 dark:text-green-100"
-                        : "bg-stone-200 text-stone-700 dark:bg-stone-800 dark:text-stone-300"
-                    }`}
-                  >
-                    {PLACEMENT_TYPE_LABELS[m.jobs.placement_type]}
-                  </span>
-                )}
-                {m.jobs.companies?.is_agency && (
-                  <span className="rounded bg-amber-100 text-amber-900 dark:bg-amber-900 dark:text-amber-100 px-1.5 py-0.5 text-xs font-medium">
-                    Recruitment agency
-                  </span>
-                )}
-              </div>
-              <p className="text-sm text-stone-500">
-                {m.jobs.companies?.name ?? "Unknown company"}
-                {m.jobs.location ? ` · ${m.jobs.location}` : ""}
-                {m.jobs.salary ? ` · ${m.jobs.salary}` : ""}
-                {m.jobs.closes_at
-                  ? ` · closes ${new Date(m.jobs.closes_at).toLocaleDateString()}`
-                  : ""}
-              </p>
-            </div>
-            <div className="text-right shrink-0">
-              <div className="text-xl font-semibold">{Math.round(m.score * 100)}%</div>
-              <div className="text-xs text-stone-500">
-                vec {Math.round(m.vector_score * 100)} · rules {Math.round(m.rule_score * 100)}
-              </div>
-            </div>
-          </div>
-
-          <p className="mt-2 text-sm">{m.reasons?.summary}</p>
-          {m.reasons?.preference?.length > 0 && (
-            <ul className="mt-1 text-xs text-stone-500">
-              {m.reasons.preference.map((n, i) => <li key={i}>• {n}</li>)}
-            </ul>
-          )}
-          {m.reasons?.keyword_hits?.length > 0 && (
-            <div className="mt-2 flex flex-wrap gap-1">
-              {m.reasons.keyword_hits.map((h, i) => (
-                <span
-                  key={i}
-                  title={h.evidence}
-                  className="rounded-full bg-stone-200 dark:bg-stone-800 px-2 py-0.5 text-xs"
-                >
-                  {h.keyword} ×{h.weight}
-                </span>
-              ))}
-            </div>
-          )}
-
-          {expanded === m.id && (
-            <p className="mt-3 text-sm text-stone-600 dark:text-stone-400 whitespace-pre-wrap max-h-64 overflow-y-auto border-t border-stone-200 dark:border-stone-800 pt-3">
-              {m.jobs.description?.slice(0, 3000) ?? "No description."}
-            </p>
-          )}
-
-          <div className="mt-3 flex items-center gap-2 text-sm">
-            <button
-              onClick={() => decide(m.id, "shortlist")}
-              className="rounded bg-green-700 text-white px-4 py-1.5 font-medium"
-            >
-              Shortlist
-            </button>
-            {dismissing === m.id ? (
-              <span className="flex flex-wrap gap-1">
-                {DISMISS_REASONS.map((r) => (
-                  <button
-                    key={r}
-                    onClick={() => decide(m.id, "dismiss", r)}
-                    className="rounded border border-red-300 text-red-700 dark:text-red-400 px-2 py-1 text-xs"
-                  >
-                    {r}
-                  </button>
-                ))}
-              </span>
-            ) : (
-              <button
-                onClick={() => setDismissing(m.id)}
-                className="rounded border border-stone-300 dark:border-stone-700 px-4 py-1.5"
-              >
-                Dismiss…
-              </button>
-            )}
-            <button
-              onClick={() => setExpanded(expanded === m.id ? null : m.id)}
-              className="ml-auto text-stone-500 hover:underline"
-            >
-              {expanded === m.id ? "Hide" : "Details"}
-            </button>
-            {m.jobs.url && (
-              <a
-                href={m.jobs.url}
-                target="_blank"
-                rel="noreferrer"
-                className="text-stone-500 hover:underline"
-              >
-                Listing ↗
-              </a>
-            )}
-          </div>
-        </div>
-      ))}
-    </div>
+    </>
   );
 }

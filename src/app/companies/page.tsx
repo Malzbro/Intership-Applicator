@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { PageHeader, Status } from "@/components/ui";
 import { createClient } from "@/lib/supabase/client";
 
 type Company = {
@@ -9,11 +10,17 @@ type Company = {
   sic_codes: string[] | null;
 };
 
+const ATS_LABEL: Record<string, string> = {
+  workday: "Workday", greenhouse: "Greenhouse", lever: "Lever", ashby: "Ashby", workable: "Workable",
+};
+
 export default function CompaniesPage() {
-  const [companies, setCompanies] = useState<Company[]>([]);
+  const [companies, setCompanies] = useState<Company[] | null>(null);
   const [location, setLocation] = useState("");
   const [busy, setBusy] = useState<string | null>(null);
   const [result, setResult] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [filter, setFilter] = useState("");
 
   const load = useCallback(async () => {
     const supabase = createClient();
@@ -21,130 +28,159 @@ export default function CompaniesPage() {
       .from("companies")
       .select("id, name, domain, hq_region, ats_type, summary, enriched_at, sic_codes")
       .order("created_at", { ascending: false })
-      .limit(200);
+      .limit(300);
     setCompanies((data ?? []) as Company[]);
   }, []);
   useEffect(() => { load(); }, [load]);
 
-  async function seed() {
-    setBusy("Seeding known UK engineering employers…");
+  async function run(label: string, request: () => Promise<Response>, describe: (json: Record<string, number>) => string) {
+    setBusy(label);
     setResult(null);
+    setError(null);
     try {
-      const res = await fetch("/api/seed-employers", { method: "POST" });
+      const res = await request();
       const json = await res.json();
-      if (!res.ok) throw new Error(json.error ?? "seeding failed");
-      setResult(
-        `${json.candidates} candidates: ${json.inserted} added, ${json.linked_existing} linked to existing rows. Run enrichment next to detect their ATS boards.`
-      );
+      if (!res.ok) throw new Error(json.error ?? "Request failed.");
+      setResult(describe(json));
       await load();
     } catch (e) {
-      setResult(e instanceof Error ? e.message : String(e));
+      setError(e instanceof Error ? e.message : String(e));
     } finally {
       setBusy(null);
     }
   }
 
-  async function discover() {
-    setBusy("Searching Companies House by engineering SIC codes…");
-    setResult(null);
-    try {
-      const res = await fetch("/api/discover", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ location: location || undefined, maxResults: 100 }),
-      });
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.error ?? "discovery failed");
-      setResult(`Found ${json.found}, added ${json.inserted} new companies.`);
-      await load();
-    } catch (e) {
-      setResult(e instanceof Error ? e.message : String(e));
-    } finally {
-      setBusy(null);
-    }
-  }
+  const seed = () =>
+    run(
+      "Adding known UK engineering employers…",
+      () => fetch("/api/seed-employers", { method: "POST" }),
+      (j) => `${j.inserted} employers added, ${j.linked_existing} matched to companies you already had. Their job boards are detected on the next enrichment run.`
+    );
+
+  const discover = () =>
+    run(
+      "Searching Companies House…",
+      () =>
+        fetch("/api/discover", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ location: location || undefined, maxResults: 100 }),
+        }),
+      (j) => `Found ${j.found} engineering companies, ${j.inserted} new.`
+    );
+
+  const shown = (companies ?? []).filter((c) =>
+    !filter || `${c.name} ${c.domain ?? ""} ${c.hq_region ?? ""}`.toLowerCase().includes(filter.toLowerCase())
+  );
+  const withBoards = (companies ?? []).filter((c) => c.ats_type).length;
 
   return (
-    <div className="space-y-6">
-      <h1 className="text-2xl font-semibold">Companies</h1>
+    <>
+      <PageHeader
+        title="Companies"
+        description="Employers the app knows about. Once an employer's job board is detected, its roles are pulled in directly every night."
+      />
 
-      <div className="rounded border border-stone-300 dark:border-stone-800 bg-white dark:bg-stone-900 p-4 space-y-2">
-        <h2 className="font-medium text-sm">Seed known UK engineering employers</h2>
-        <p className="text-xs text-stone-500">
-          Adds a curated list of aerospace, semiconductor, power, automotive and
-          instrumentation employers. Enrichment then detects which use
-          Greenhouse, Lever, Ashby or Workable — and those boards return their
-          complete live vacancy list as structured data, which beats scraping an
-          aggregator&apos;s index of the same roles.
-        </p>
-        <button
-          onClick={seed}
-          disabled={!!busy}
-          className="rounded bg-stone-900 dark:bg-stone-100 text-white dark:text-stone-900 px-4 py-1.5 text-sm font-medium disabled:opacity-50"
-        >
-          Seed employers
-        </button>
+      <div className="grid gap-4 lg:grid-cols-2">
+        <section className="card card-pad flex flex-col">
+          <h2 className="section-title">Add known UK engineering employers</h2>
+          <p className="section-desc flex-1">
+            Aerospace, semiconductors, power, automotive and instrumentation — MBDA, Renishaw, Arm,
+            Rolls-Royce and around sixty more.
+          </p>
+          <div className="mt-5">
+            <button onClick={seed} disabled={!!busy} className="btn btn-primary">Add employers</button>
+          </div>
+        </section>
+
+        <section className="card card-pad flex flex-col">
+          <h2 className="section-title">Find companies near you</h2>
+          <p className="section-desc">
+            Searches Companies House for active electronics and engineering firms — including small
+            ones that never advertise on job boards.
+          </p>
+          <div className="mt-5 flex flex-wrap gap-2">
+            <input
+              value={location}
+              onChange={(e) => setLocation(e.target.value)}
+              placeholder="Town or region (optional)"
+              className="input w-auto min-w-0 flex-1"
+            />
+            <button onClick={discover} disabled={!!busy} className="btn btn-secondary">Search</button>
+          </div>
+        </section>
       </div>
 
-      <div className="rounded border border-stone-300 dark:border-stone-800 bg-white dark:bg-stone-900 p-4 space-y-3">
-        <h2 className="font-medium text-sm">
-          Company-first discovery (Companies House, engineering SIC codes)
-        </h2>
-        <div className="flex gap-2 flex-wrap">
-          <input
-            value={location}
-            onChange={(e) => setLocation(e.target.value)}
-            placeholder="Region filter, e.g. Manchester (optional)"
-            className="rounded border border-stone-300 dark:border-stone-700 bg-transparent px-3 py-1.5 text-sm w-72"
-          />
-          <button
-            onClick={discover}
-            disabled={!!busy}
-            className="rounded bg-stone-900 dark:bg-stone-100 text-white dark:text-stone-900 px-4 py-1.5 text-sm font-medium disabled:opacity-50"
-          >
-            Discover
-          </button>
+      {(busy || result || error) && (
+        <div className="card mt-4 px-5 py-3.5">
+          <Status busy={busy} error={error} ok={result} />
         </div>
-        {busy && <p className="text-sm text-stone-500 animate-pulse">{busy}</p>}
-        {result && <p className="text-sm">{result}</p>}
-        <p className="text-xs text-stone-500">
-          Newly discovered companies get a careers page + ATS detection pass on the
-          next enrichment run. Add a domain manually below to speed that up.
-        </p>
-      </div>
+      )}
 
-      <table className="w-full text-sm border-collapse">
-        <thead>
-          <tr className="text-left text-stone-500 border-b border-stone-300 dark:border-stone-700">
-            <th className="py-2 pr-4">Name</th>
-            <th className="py-2 pr-4">Domain</th>
-            <th className="py-2 pr-4">Region</th>
-            <th className="py-2 pr-4">ATS</th>
-            <th className="py-2">Enriched</th>
-          </tr>
-        </thead>
-        <tbody>
-          {companies.map((c) => (
-            <tr key={c.id} className="border-b border-stone-200 dark:border-stone-800 align-top">
-              <td className="py-2 pr-4">
-                <div className="font-medium">{c.name}</div>
-                {c.summary && (
-                  <div className="text-xs text-stone-500 max-w-md">{c.summary}</div>
-                )}
-              </td>
-              <td className="py-2 pr-4">
-                <DomainCell company={c} onSaved={load} />
-              </td>
-              <td className="py-2 pr-4">{c.hq_region ?? "—"}</td>
-              <td className="py-2 pr-4">{c.ats_type ?? "—"}</td>
-              <td className="py-2">
-                {c.enriched_at ? new Date(c.enriched_at).toLocaleDateString() : "pending"}
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
+      <section className="card mt-6 overflow-hidden">
+        <div className="flex flex-wrap items-center gap-3 border-b border-border px-5 py-3">
+          <h2 className="section-title">
+            {companies ? (
+              <>
+                <span className="font-mono tabular-nums">{companies.length}</span> companies
+                <span className="ml-2 text-[13px] font-normal text-muted">
+                  <span className="font-mono tabular-nums">{withBoards}</span> with a job board
+                </span>
+              </>
+            ) : "Companies"}
+          </h2>
+          <input
+            value={filter}
+            onChange={(e) => setFilter(e.target.value)}
+            placeholder="Filter"
+            aria-label="Filter companies"
+            className="input ml-auto h-8 w-48"
+          />
+        </div>
+
+        {companies === null ? (
+          <div className="space-y-3 p-5" aria-hidden="true">
+            {Array.from({ length: 5 }).map((_, i) => <div key={i} className="skeleton h-9" />)}
+          </div>
+        ) : shown.length === 0 ? (
+          <p className="px-5 py-10 text-center text-sm text-muted">
+            {companies.length === 0 ? "No companies yet — add employers above." : "No companies match that filter."}
+          </p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="table">
+              <thead>
+                <tr>
+                  <th className="w-[40%]">Company</th>
+                  <th>Website</th>
+                  <th>Region</th>
+                  <th>Job board</th>
+                  <th>Researched</th>
+                </tr>
+              </thead>
+              <tbody>
+                {shown.map((c) => (
+                  <tr key={c.id} className="transition-colors hover:bg-surface-2/40">
+                    <td>
+                      <div className="font-medium">{c.name}</div>
+                      {c.summary && <p className="mt-0.5 line-clamp-2 max-w-[56ch] text-[13px] text-muted">{c.summary}</p>}
+                    </td>
+                    <td><DomainCell company={c} onSaved={load} /></td>
+                    <td className="text-muted">{c.hq_region ?? "—"}</td>
+                    <td>
+                      {c.ats_type ? <span className="chip chip-accent">{ATS_LABEL[c.ats_type] ?? c.ats_type}</span> : <span className="text-subtle">—</span>}
+                    </td>
+                    <td className="whitespace-nowrap text-muted">
+                      {c.enriched_at ? new Date(c.enriched_at).toLocaleDateString("en-GB", { day: "numeric", month: "short" }) : <span className="chip">Pending</span>}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
+    </>
   );
 }
 
@@ -154,8 +190,12 @@ function DomainCell({ company, onSaved }: { company: Company; onSaved: () => voi
 
   if (!editing) {
     return (
-      <button onClick={() => setEditing(true)} className="hover:underline text-left">
-        {company.domain ?? <span className="text-stone-400">add domain…</span>}
+      <button
+        onClick={() => setEditing(true)}
+        className="rounded px-1 -mx-1 text-left font-mono text-[13px] transition-colors hover:bg-surface-2"
+        title="Edit website"
+      >
+        {company.domain ?? <span className="font-sans text-subtle">Add website</span>}
       </button>
     );
   }
@@ -176,8 +216,9 @@ function DomainCell({ company, onSaved }: { company: Company; onSaved: () => voi
         autoFocus
         value={value}
         onChange={(e) => setValue(e.target.value)}
+        onBlur={() => setEditing(false)}
         placeholder="example.co.uk"
-        className="rounded border border-stone-300 dark:border-stone-700 bg-transparent px-2 py-0.5 text-xs w-40"
+        className="input h-7 w-40 font-mono text-xs"
       />
     </form>
   );

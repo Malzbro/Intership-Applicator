@@ -1,11 +1,9 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { LogoMark } from "@/components/icons";
 
 type Mode = "login" | "signup";
-
-const inputClass =
-  "w-full rounded border border-stone-300 dark:border-stone-700 bg-white dark:bg-stone-900 px-3 py-2 text-sm";
 
 export default function LoginPage() {
   const [mode, setMode] = useState<Mode>("login");
@@ -21,77 +19,93 @@ export default function LoginPage() {
   }, []);
 
   return (
-    <div className="max-w-sm mx-auto mt-24">
-      <div className="flex rounded border border-stone-300 dark:border-stone-700 overflow-hidden text-sm mb-6">
-        {(["login", "signup"] as Mode[]).map((m) => (
-          <button
-            key={m}
-            type="button"
-            onClick={() => { setMode(m); setError(null); }}
-            className={`flex-1 py-2 ${
-              mode === m ? "bg-stone-900 text-white dark:bg-stone-100 dark:text-stone-900" : ""
-            }`}
+    <div className="grid min-h-[calc(100dvh-8rem)] place-items-center">
+      <div className="w-full max-w-[380px]">
+        <div className="mb-8 flex flex-col items-center text-center">
+          <LogoMark size={36} />
+          <h1 className="mt-5 text-2xl font-semibold tracking-[-0.025em]">
+            {mode === "login" ? "Welcome back" : "Create your account"}
+          </h1>
+          <p className="mt-1.5 text-sm text-muted">
+            {mode === "login"
+              ? "Sign in to pick up your applications."
+              : "Find summer internships and draft applications in your own voice."}
+          </p>
+        </div>
+
+        <div className="card card-pad">
+          <div className="segmented mb-5 flex w-full [&>button]:flex-1">
+            {(["login", "signup"] as Mode[]).map((m) => (
+              <button
+                key={m}
+                type="button"
+                aria-pressed={mode === m}
+                onClick={() => { setMode(m); setError(null); }}
+              >
+                {m === "login" ? "Sign in" : "Create account"}
+              </button>
+            ))}
+          </div>
+
+          <form
+            action={mode === "login" ? "/auth/login" : "/auth/signup"}
+            method="post"
+            onSubmit={() => setBusy(true)}
+            className="space-y-4"
           >
-            {m === "login" ? "Sign in" : "Create account"}
-          </button>
-        ))}
+            <label className="field">
+              <span className="label">Email</span>
+              <input
+                name="email"
+                type="email"
+                required
+                autoComplete="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                placeholder="you@university.ac.uk"
+                className="input"
+              />
+            </label>
+
+            <label className="field">
+              <span className="label">Password</span>
+              <input
+                name="password"
+                type="password"
+                required
+                minLength={mode === "signup" ? 8 : undefined}
+                autoComplete={mode === "login" ? "current-password" : "new-password"}
+                className="input"
+              />
+            </label>
+
+            {mode === "signup" && (
+              <label className="field">
+                <span className="label">Confirm password</span>
+                <input
+                  name="confirm"
+                  type="password"
+                  required
+                  minLength={8}
+                  autoComplete="new-password"
+                  className="input"
+                />
+                <span className="hint">At least 8 characters.</span>
+              </label>
+            )}
+
+            {error && (
+              <p className="rounded-lg bg-danger-soft px-3 py-2 text-sm text-danger" role="alert">
+                {error}
+              </p>
+            )}
+
+            <button disabled={busy} className="btn btn-primary w-full">
+              {busy ? "Just a moment…" : mode === "login" ? "Sign in" : "Create account"}
+            </button>
+          </form>
+        </div>
       </div>
-
-      <form
-        action={mode === "login" ? "/auth/login" : "/auth/signup"}
-        method="post"
-        onSubmit={() => setBusy(true)}
-        className="space-y-3"
-      >
-        <label className="block">
-          <span className="text-sm font-medium">Email</span>
-          <input
-            name="email"
-            type="email"
-            required
-            autoComplete="email"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            className={`mt-1 ${inputClass}`}
-          />
-        </label>
-
-        <label className="block">
-          <span className="text-sm font-medium">Password</span>
-          <input
-            name="password"
-            type="password"
-            required
-            minLength={mode === "signup" ? 8 : undefined}
-            autoComplete={mode === "login" ? "current-password" : "new-password"}
-            className={`mt-1 ${inputClass}`}
-          />
-        </label>
-
-        {mode === "signup" && (
-          <label className="block">
-            <span className="text-sm font-medium">Confirm password</span>
-            <input
-              name="confirm"
-              type="password"
-              required
-              minLength={8}
-              autoComplete="new-password"
-              className={`mt-1 ${inputClass}`}
-            />
-            <span className="text-xs text-stone-500">At least 8 characters.</span>
-          </label>
-        )}
-
-        <button
-          disabled={busy}
-          className="w-full rounded bg-stone-900 dark:bg-stone-100 text-white dark:text-stone-900 py-2 text-sm font-medium disabled:opacity-50"
-        >
-          {busy ? "…" : mode === "login" ? "Sign in" : "Create account"}
-        </button>
-
-        {error && <p className="text-sm text-red-600">{error}</p>}
-      </form>
     </div>
   );
 }

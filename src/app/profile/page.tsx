@@ -1,6 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { CheckIcon } from "@/components/icons";
+import { PageHeader } from "@/components/ui";
 import { createClient } from "@/lib/supabase/client";
 import { PLACEMENT_TYPE_LABELS, type PlacementType } from "@/lib/classify";
 
@@ -18,6 +20,7 @@ const TYPES = Object.keys(PLACEMENT_TYPE_LABELS) as PlacementType[];
 
 export default function ProfilePage() {
   const [p, setP] = useState<Profile | null>(null);
+  const [locationsText, setLocationsText] = useState("");
   const [busy, setBusy] = useState(false);
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -28,12 +31,21 @@ export default function ProfilePage() {
       .from("profiles")
       .select("full_name, course, year, grade, locations, eligibility, preferred_types")
       .single();
-    if (error) setError(error.message);
-    else setP(data as Profile);
+    if (error) {
+      setError(
+        /preferred_types/.test(error.message)
+          ? "Your database needs an update: run migration 0002_placement_types.sql in Supabase, then reload."
+          : error.message
+      );
+    } else {
+      setP(data as Profile);
+      setLocationsText((data?.locations ?? []).join(", "));
+    }
   }, []);
   useEffect(() => { load(); }, [load]);
 
-  async function save() {
+  async function save(e: React.FormEvent) {
+    e.preventDefault();
     if (!p) return;
     setBusy(true);
     setError(null);
@@ -46,7 +58,7 @@ export default function ProfilePage() {
         course: p.course,
         year: p.year,
         grade: p.grade,
-        locations: p.locations ?? [],
+        locations: locationsText.split(",").map((s) => s.trim()).filter(Boolean),
         eligibility: p.eligibility,
         preferred_types: p.preferred_types ?? [],
       })
@@ -55,124 +67,111 @@ export default function ProfilePage() {
     if (error) setError(error.message);
     else {
       setSaved(true);
-      setTimeout(() => setSaved(false), 2000);
+      setTimeout(() => setSaved(false), 2500);
     }
   }
 
-  if (error) return <p className="text-sm text-red-600">{error}</p>;
-  if (!p) return <p className="text-sm text-stone-500">Loading…</p>;
-
   const toggleType = (t: PlacementType) => {
+    if (!p) return;
     const current = p.preferred_types ?? [];
-    setP({
-      ...p,
-      preferred_types: current.includes(t)
-        ? current.filter((x) => x !== t)
-        : [...current, t],
-    });
+    setP({ ...p, preferred_types: current.includes(t) ? current.filter((x) => x !== t) : [...current, t] });
   };
 
   return (
-    <div className="space-y-6 max-w-2xl">
-      <h1 className="text-2xl font-semibold">Profile &amp; preferences</h1>
-      <p className="text-sm text-stone-500">
-        These drive the hard filters and ranking. Nothing here is guesswork — a
-        job outside your regions is dropped, and a role outside your preferred
-        types is demoted rather than hidden.
-      </p>
+    <>
+      <PageHeader
+        title="Profile"
+        description="Your preferences drive matching. A role outside your locations is filtered out; a role outside your preferred types is ranked lower rather than hidden."
+      />
 
-      <div className="grid md:grid-cols-2 gap-4">
-        <Text label="Full name" value={p.full_name ?? ""}
-          onChange={(v) => setP({ ...p, full_name: v })} />
-        <Text label="Course" value={p.course ?? ""}
-          placeholder="BEng Electrical & Electronic Engineering"
-          onChange={(v) => setP({ ...p, course: v })} />
-        <Text label="Year of study" value={p.year?.toString() ?? ""}
-          placeholder="2"
-          onChange={(v) => setP({ ...p, year: v ? Number(v) : null })} />
-        <Text label="Grade so far" value={p.grade ?? ""}
-          placeholder="First / 2:1"
-          onChange={(v) => setP({ ...p, grade: v })} />
-      </div>
+      {error && <p className="mb-6 rounded-lg bg-danger-soft px-4 py-3 text-sm text-danger" role="alert">{error}</p>}
 
-      <div>
-        <span className="text-sm font-medium">What you are looking for</span>
-        <p className="text-xs text-stone-500 mb-2">
-          Leave all unchecked for no preference.
-        </p>
-        <div className="space-y-1.5">
-          {TYPES.map((t) => (
-            <label key={t} className="flex items-center gap-2 text-sm">
+      {!p ? (
+        !error && <div className="skeleton h-96 max-w-3xl rounded-xl" aria-hidden="true" />
+      ) : (
+        <form onSubmit={save} className="max-w-3xl space-y-6">
+          <section className="card card-pad">
+            <h2 className="section-title">About you</h2>
+            <div className="mt-5 grid gap-5 md:grid-cols-2">
+              <Text label="Full name" value={p.full_name ?? ""} onChange={(v) => setP({ ...p, full_name: v })} />
+              <Text label="Course" value={p.course ?? ""} placeholder="BEng Electrical & Electronic Engineering"
+                onChange={(v) => setP({ ...p, course: v })} />
+              <Text label="Year of study" value={p.year?.toString() ?? ""} placeholder="2" inputMode="numeric"
+                onChange={(v) => setP({ ...p, year: v ? Number(v.replace(/\D/g, "")) || null : null })} />
+              <Text label="Grade so far" value={p.grade ?? ""} placeholder="First, 2:1…"
+                onChange={(v) => setP({ ...p, grade: v })} />
+            </div>
+          </section>
+
+          <section className="card card-pad">
+            <h2 className="section-title">What you&apos;re looking for</h2>
+            <p className="section-desc">Choose any that apply. Leave all off for no preference.</p>
+            <div className="mt-4 grid gap-2 sm:grid-cols-2">
+              {TYPES.map((t) => {
+                const on = (p.preferred_types ?? []).includes(t);
+                return (
+                  <button
+                    key={t}
+                    type="button"
+                    aria-pressed={on}
+                    onClick={() => toggleType(t)}
+                    className={`flex items-center gap-3 rounded-lg border px-3.5 py-2.5 text-left text-sm transition-colors ${
+                      on ? "border-accent/50 bg-accent-soft text-fg" : "border-border hover:border-border-strong hover:bg-surface-2/60"
+                    }`}
+                  >
+                    <span className={`grid size-4 shrink-0 place-items-center rounded ${on ? "bg-accent text-on-accent" : "border border-border-strong"}`}>
+                      {on && <CheckIcon size={11} strokeWidth={2.4} />}
+                    </span>
+                    {PLACEMENT_TYPE_LABELS[t]}
+                  </button>
+                );
+              })}
+            </div>
+          </section>
+
+          <section className="card card-pad space-y-5">
+            <h2 className="section-title">Filters</h2>
+            <label className="field">
+              <span className="label">Locations you would accept</span>
               <input
-                type="checkbox"
-                checked={(p.preferred_types ?? []).includes(t)}
-                onChange={() => toggleType(t)}
+                value={locationsText}
+                onChange={(e) => setLocationsText(e.target.value)}
+                placeholder="Manchester, Leeds, Sheffield"
+                className="input"
               />
-              {PLACEMENT_TYPE_LABELS[t]}
+              <span className="hint">Separate with commas. Remote and UK-wide roles always pass. Leave empty to accept anywhere.</span>
             </label>
-          ))}
-        </div>
-      </div>
+            <label className="field">
+              <span className="label">Right to work</span>
+              <input
+                value={p.eligibility ?? ""}
+                onChange={(e) => setP({ ...p, eligibility: e.target.value })}
+                placeholder="UK citizen, no visa needed"
+                className="input"
+              />
+              <span className="hint">Include the word “visa” if you need sponsorship — listings that rule it out are filtered.</span>
+            </label>
+          </section>
 
-      <div>
-        <span className="text-sm font-medium">Locations you would accept</span>
-        <p className="text-xs text-stone-500 mb-1">
-          Comma-separated towns, cities or regions. Remote and UK-wide listings
-          always pass. Leave empty to accept anywhere.
-        </p>
-        <input
-          value={(p.locations ?? []).join(", ")}
-          onChange={(e) =>
-            setP({
-              ...p,
-              locations: e.target.value.split(",").map((s) => s.trim()).filter(Boolean),
-            })
-          }
-          placeholder="Manchester, Leeds, Sheffield"
-          className="w-full rounded border border-stone-300 dark:border-stone-700 bg-white dark:bg-stone-900 px-3 py-2 text-sm"
-        />
-      </div>
-
-      <div>
-        <span className="text-sm font-medium">Work eligibility</span>
-        <p className="text-xs text-stone-500 mb-1">
-          Mention “visa” if you need sponsorship — listings that rule it out get
-          filtered.
-        </p>
-        <input
-          value={p.eligibility ?? ""}
-          onChange={(e) => setP({ ...p, eligibility: e.target.value })}
-          placeholder="UK citizen, no visa needed"
-          className="w-full rounded border border-stone-300 dark:border-stone-700 bg-white dark:bg-stone-900 px-3 py-2 text-sm"
-        />
-      </div>
-
-      <div className="flex items-center gap-3">
-        <button
-          onClick={save}
-          disabled={busy}
-          className="rounded bg-green-700 text-white px-5 py-2 text-sm font-medium disabled:opacity-50"
-        >
-          {busy ? "Saving…" : "Save"}
-        </button>
-        {saved && <span className="text-sm text-green-600">Saved. Re-run matching to apply.</span>}
-      </div>
-    </div>
+          <div className="flex items-center justify-end gap-3">
+            {saved && <span className="text-sm text-accent-strong">Saved. New preferences apply from the next matching run.</span>}
+            <button disabled={busy} className="btn btn-primary">{busy ? "Saving…" : "Save profile"}</button>
+          </div>
+        </form>
+      )}
+    </>
   );
 }
 
-function Text({ label, value, onChange, placeholder }: {
+function Text({ label, value, onChange, placeholder, inputMode }: {
   label: string; value: string; onChange: (v: string) => void; placeholder?: string;
+  inputMode?: React.HTMLAttributes<HTMLInputElement>["inputMode"];
 }) {
   return (
-    <label className="block">
-      <span className="text-sm font-medium">{label}</span>
-      <input
-        value={value}
-        placeholder={placeholder}
-        onChange={(e) => onChange(e.target.value)}
-        className="mt-1 w-full rounded border border-stone-300 dark:border-stone-700 bg-white dark:bg-stone-900 px-3 py-2 text-sm"
-      />
+    <label className="field">
+      <span className="label">{label}</span>
+      <input value={value} placeholder={placeholder} inputMode={inputMode}
+        onChange={(e) => onChange(e.target.value)} className="input" />
     </label>
   );
 }
