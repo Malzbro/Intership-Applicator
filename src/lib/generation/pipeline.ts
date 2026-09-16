@@ -1,8 +1,22 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { claudeJson, claudeText, MODEL } from "@/lib/anthropic";
-import type { Critique, ParsedCv, ResearchBundle, TailoredCv } from "@/lib/types";
+import { factsToPrompt } from "@/lib/facts";
+import { styleProfileToPrompt } from "@/lib/style/extract";
+import type {
+  Critique, GenerationKnobs, ParsedCv, PersonalFact, ResearchBundle,
+  StyleProfile, TailoredCv, Tone,
+} from "@/lib/types";
 
-export const PROMPT_VERSION = "v1";
+export const PROMPT_VERSION = "v2";
+
+const TONE_GUIDANCE: Record<Tone, string> = {
+  formal:
+    "Register: formal. Full sentences, no contractions, no colloquialism. Still specific and human — formal is not stiff.",
+  balanced:
+    "Register: professional but relaxed. Contractions are fine where natural.",
+  conversational:
+    "Register: conversational. Write as you would to an engineer you respect. Contractions throughout, plain words, no ceremony. Never slangy or over-familiar.",
+};
 
 const BANNED_PHRASES = [
   "passionate about", "dynamic environment", "I was excited to see",
@@ -87,24 +101,66 @@ export async function writeCoverLetter(opts: {
   research: ResearchBundle;
   jobTitle: string;
   companyName: string;
-}): Promise<string> {
-  return claudeText({
-    system: `You write one-page cover letters for a UK engineering student. Requirements:
+  style?: StyleProfile | null;
+  facts?: PersonalFact[];
+  knobs?: GenerationKnobs;
+}): Promise<{ letter: string; usedFacts: string[] }> {
+  const knobs = opts.knobs ?? { tone: "balanced" as Tone, leadRefs: [] };
+
+  const leadInstruction = knobs.leadRefs.length
+    ? `LEAD WITH these CV entries, in this order: ${knobs.leadRefs.join(", ")}. Build the letter's evidence around them.`
+    : "";
+
+  // The applicant's own free-text steer for this specific company.
+  const steer = knobs.extraInstructions?.trim()
+    ? `THE APPLICANT'S OWN INSTRUCTION FOR THIS LETTER (follow it):\n${knobs.extraInstructions.trim().slice(0, 1500)}`
+    : "";
+
+  const sections = [
+    opts.style ? styleProfileToPrompt(opts.style) : "",
+    TONE_GUIDANCE[knobs.tone],
+    leadInstruction,
+    steer,
+  ].filter(Boolean);
+
+  const raw = await claudeText({
+    system: `You write one-page cover letters for a UK engineering student applying for summer internships.
+
+${sections.join("\n\n")}
+
+HARD REQUIREMENTS:
 - Markdown, no letterhead, no address block; start at "Dear ...".
-- Reference AT LEAST TWO concrete, sourced specifics about the company from the research bundle (a named project, a stated value tied to something the student actually did, a recent contract) and connect each to evidence from the CV.
-- Every claim about the student must come from the CV. Every claim about the company must come from the research bundle.
+- Reference AT LEAST TWO concrete, sourced specifics about the company from the research bundle (a named project, a stated value, a recent contract) and connect each to real evidence from the CV or facts bank.
+- Every claim about the student must trace to the CV or the facts bank. Every claim about the company must trace to the research bundle. Invent nothing.
 - BANNED phrases (never use): ${BANNED_PHRASES.join("; ")}.
-- Under 350 words. Plain, specific, confident. No bullet points.`,
-    user: `Company: ${opts.companyName}
-Role: ${opts.jobTitle}
+- No sentence may survive a find-and-replace of the company name. If one would, cut it.
+- Under 350 words. No bullet points.
 
-CV:
-${JSON.stringify(opts.cv, null, 2)}
-
-RESEARCH BUNDLE:
-${JSON.stringify(opts.research, null, 2)}`,
-    maxTokens: 1500,
+OUTPUT FORMAT — exactly this, nothing else:
+<letter>
+(the letter)
+</letter>
+<used_facts>comma-separated prompt_key values you drew on, or "none"</used_facts>`,
+    user: [
+      `Company: ${opts.companyName}`,
+      `Role: ${opts.jobTitle}`,
+      `CV:\n${JSON.stringify(opts.cv, null, 2)}`,
+      `RESEARCH BUNDLE:\n${JSON.stringify(opts.research, null, 2)}`,
+      opts.facts?.length ? factsToPrompt(opts.facts) : "",
+    ]
+      .filter(Boolean)
+      .join("\n\n"),
+    maxTokens: 2000,
   });
+
+  const letter = raw.match(/<letter>([\s\S]*?)<\/letter>/)?.[1]?.trim() ?? raw.trim();
+  const usedRaw = raw.match(/<used_facts>([\s\S]*?)<\/used_facts>/)?.[1]?.trim() ?? "";
+  const usedFacts =
+    !usedRaw || /^none$/i.test(usedRaw)
+      ? []
+      : usedRaw.split(",").map((s) => s.trim()).filter(Boolean);
+
+  return { letter, usedFacts };
 }
 
 // ---------- step 4: critique pass ----------
@@ -112,6 +168,7 @@ export async function critiqueDrafts(opts: {
   research: ResearchBundle;
   tailoredCv: TailoredCv;
   coverLetter: string;
+  style?: StyleProfile | null;
 }): Promise<Critique> {
   return claudeJson<Critique>({
     system: `You are a harsh reviewer of internship application documents. Return ONLY JSON:
@@ -119,18 +176,23 @@ export async function critiqueDrafts(opts: {
  "overall_score": 0-10,
  "unsupported_claims": [{"text": "...", "document": "cv|cover_letter"}],
  "generic_sentences": [{"text": "...", "document": "cv|cover_letter"}],
+ "voice_mismatches": [{"text": "...", "why": "how it departs from their voice"}],
  "length_issues": ["..."],
  "suggestions": ["..."]
 }
-Flag: any claim not supported by the research bundle or CV structure; any sentence that would survive a find-and-replace of the company name (that is the definition of generic); any banned phrase (${BANNED_PHRASES.join("; ")}); cover letter over 350 words.`,
-    user: `RESEARCH BUNDLE:
-${JSON.stringify(opts.research, null, 2)}
-
-TAILORED CV:
-${JSON.stringify(opts.tailoredCv, null, 2)}
-
-COVER LETTER:
-${opts.coverLetter}`,
+Flag: any claim not supported by the research bundle or CV structure; any sentence that would survive a find-and-replace of the company name (that is the definition of generic); any banned phrase (${BANNED_PHRASES.join("; ")}); cover letter over 350 words.${
+      opts.style
+        ? `\n\nAlso flag voice_mismatches: sentences that do not sound like this person, given their style profile below. A letter can be factually perfect and still read as machine-written — that is what this field catches. Return an empty array if the voice holds.`
+        : `\n\nNo style profile is available, so return voice_mismatches as an empty array.`
+    }`,
+    user: [
+      opts.style ? `STYLE PROFILE:\n${JSON.stringify(opts.style, null, 2)}` : "",
+      `RESEARCH BUNDLE:\n${JSON.stringify(opts.research, null, 2)}`,
+      `TAILORED CV:\n${JSON.stringify(opts.tailoredCv, null, 2)}`,
+      `COVER LETTER:\n${opts.coverLetter}`,
+    ]
+      .filter(Boolean)
+      .join("\n\n"),
     maxTokens: 2000,
   });
 }
@@ -139,7 +201,9 @@ ${opts.coverLetter}`,
 export async function generateApplication(db: SupabaseClient, applicationId: string) {
   const { data: app } = await db
     .from("applications")
-    .select("id, profile_id, job_id, jobs(id, title, description, requirements, company_id, companies(id, name, domain))")
+    .select(
+      "id, profile_id, job_id, tone, lead_refs, extra_instructions, jobs(id, title, description, requirements, company_id, companies(id, name, domain))"
+    )
     .eq("id", applicationId)
     .single();
   if (!app) throw new Error("application not found");
@@ -151,14 +215,23 @@ export async function generateApplication(db: SupabaseClient, applicationId: str
   };
   const company = job.companies;
 
-  const { data: cvDoc } = await db
-    .from("cv_documents")
-    .select("parsed")
-    .eq("profile_id", app.profile_id)
-    .eq("is_primary", true)
-    .single();
+  const [{ data: cvDoc }, { data: profile }, { data: factRows }] = await Promise.all([
+    db.from("cv_documents").select("parsed").eq("profile_id", app.profile_id)
+      .eq("is_primary", true).single(),
+    db.from("profiles").select("style_profile").eq("id", app.profile_id).single(),
+    db.from("personal_facts").select("id, prompt_key, question, answer, themes")
+      .eq("profile_id", app.profile_id),
+  ]);
   if (!cvDoc?.parsed) throw new Error("no primary parsed CV — upload and review one first");
   const cv = cvDoc.parsed as ParsedCv;
+  const style = (profile?.style_profile ?? null) as StyleProfile | null;
+  const facts = (factRows ?? []) as PersonalFact[];
+
+  const knobs: GenerationKnobs = {
+    tone: (app.tone as Tone) ?? "balanced",
+    leadRefs: (app.lead_refs as string[] | null) ?? [],
+    extraInstructions: app.extra_instructions as string | null,
+  };
 
   // step 1 — research
   let pages: { url: string; kind: string; text: string }[] = [];
@@ -186,12 +259,15 @@ export async function generateApplication(db: SupabaseClient, applicationId: str
   }
 
   // step 3 — cover letter
-  const coverLetter = await writeCoverLetter({
+  const { letter: coverLetter, usedFacts } = await writeCoverLetter({
     cv, research, jobTitle: job.title, companyName: company?.name ?? "the company",
+    style, facts, knobs,
   });
 
   // step 4 — critique
-  const critique = await critiqueDrafts({ research, tailoredCv: tailored, coverLetter });
+  const critique = await critiqueDrafts({
+    research, tailoredCv: tailored, coverLetter, style,
+  });
   if (problems.length) {
     critique.unsupported_claims.push(
       ...problems.map((p) => ({ text: p, document: "cv" as const }))
@@ -227,6 +303,7 @@ export async function generateApplication(db: SupabaseClient, applicationId: str
     kind: "cover_letter",
     version: await nextVersion("cover_letter"),
     content_md: coverLetter,
+    used_facts: usedFacts,
     prompt_version: PROMPT_VERSION,
     model: MODEL,
   });

@@ -2,22 +2,26 @@
 
 import { use, useCallback, useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
-import type { Critique, ResearchBundle } from "@/lib/types";
+import { TONE_LABELS, type Critique, type ParsedCv, type ResearchBundle, type Tone } from "@/lib/types";
 
 type Doc = {
   id: string; kind: "cv" | "cover_letter"; version: number;
   content_md: string | null; prompt_version: string | null; created_at: string;
+  used_facts: string[] | null;
 };
 
 type AppDetail = {
   id: string; status: string; research: ResearchBundle | null;
   critique: Critique | null; notes: string | null;
+  tone: Tone | null; lead_refs: string[] | null; extra_instructions: string | null;
   jobs: {
     title: string; url: string | null; location: string | null;
     description: string | null;
     companies: { name: string; summary: string | null } | null;
   };
 };
+
+type LeadOption = { ref: string; label: string };
 
 export default function ApplicationDetail({
   params,
@@ -32,25 +36,69 @@ export default function ApplicationDetail({
   const [editText, setEditText] = useState("");
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [leadOptions, setLeadOptions] = useState<LeadOption[]>([]);
+  const [knobs, setKnobs] = useState<{
+    tone: Tone; leadRefs: string[]; extraInstructions: string;
+  }>({ tone: "balanced", leadRefs: [], extraInstructions: "" });
+  const [knobsDirty, setKnobsDirty] = useState(false);
 
   const load = useCallback(async () => {
     const supabase = createClient();
-    const [{ data: a }, { data: d }] = await Promise.all([
+    const [{ data: a }, { data: d }, { data: cv }] = await Promise.all([
       supabase
         .from("applications")
-        .select("id, status, research, critique, notes, jobs(title, url, location, description, companies(name, summary))")
+        .select("id, status, research, critique, notes, tone, lead_refs, extra_instructions, jobs(title, url, location, description, companies(name, summary))")
         .eq("id", id)
         .single(),
       supabase
         .from("documents")
-        .select("id, kind, version, content_md, prompt_version, created_at")
+        .select("id, kind, version, content_md, prompt_version, created_at, used_facts")
         .eq("application_id", id)
         .order("version", { ascending: false }),
+      supabase
+        .from("cv_documents")
+        .select("parsed")
+        .eq("is_primary", true)
+        .maybeSingle(),
     ]);
-    setApp(a as unknown as AppDetail);
+    const detail = a as unknown as AppDetail;
+    setApp(detail);
     setDocs((d ?? []) as Doc[]);
+    if (detail) {
+      setKnobs({
+        tone: detail.tone ?? "balanced",
+        leadRefs: detail.lead_refs ?? [],
+        extraInstructions: detail.extra_instructions ?? "",
+      });
+      setKnobsDirty(false);
+    }
+    const parsed = cv?.parsed as ParsedCv | undefined;
+    if (parsed) {
+      setLeadOptions([
+        ...parsed.projects.map((p) => ({ ref: p.id, label: `${p.name} (project)` })),
+        ...parsed.experience.map((e) => ({
+          ref: e.id, label: `${e.title} @ ${e.employer} (experience)`,
+        })),
+      ]);
+    }
   }, [id]);
   useEffect(() => { load(); }, [load]);
+
+  async function saveKnobs() {
+    setBusy("Saving personalisation…");
+    await fetch("/api/applications/knobs", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        applicationId: id,
+        tone: knobs.tone,
+        leadRefs: knobs.leadRefs,
+        extraInstructions: knobs.extraInstructions || null,
+      }),
+    });
+    setKnobsDirty(false);
+    setBusy(null);
+  }
 
   const versions = docs.filter((d) => d.kind === activeKind);
   const current =
@@ -61,8 +109,9 @@ export default function ApplicationDetail({
   }, [current?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   async function generate() {
-    setBusy("Running research → CV → letter → critique. A minute or two…");
     setError(null);
+    if (knobsDirty) await saveKnobs();
+    setBusy("Running research → CV → letter → critique. A minute or two…");
     try {
       const res = await fetch("/api/generate", {
         method: "POST",
@@ -127,6 +176,88 @@ export default function ApplicationDetail({
 
       {busy && <p className="text-sm text-stone-500 animate-pulse">{busy}</p>}
       {error && <p className="text-sm text-red-600">{error}</p>}
+
+      {/* per-company personalisation, applied on the next generate */}
+      <section className="rounded border border-stone-300 dark:border-stone-800 bg-white dark:bg-stone-900 p-4 space-y-4">
+        <div className="flex items-baseline gap-3">
+          <h2 className="text-lg font-medium">Personalise this letter</h2>
+          <span className="text-xs text-stone-500">applied on the next generate</span>
+          {knobsDirty && (
+            <button
+              onClick={saveKnobs}
+              className="ml-auto rounded border border-stone-400 dark:border-stone-600 px-3 py-1 text-xs"
+            >
+              Save
+            </button>
+          )}
+        </div>
+
+        <div className="grid md:grid-cols-2 gap-4">
+          <div>
+            <span className="text-sm font-medium">Tone</span>
+            <div className="mt-1 flex rounded border border-stone-300 dark:border-stone-700 overflow-hidden text-sm">
+              {(["formal", "balanced", "conversational"] as Tone[]).map((t) => (
+                <button
+                  key={t}
+                  onClick={() => { setKnobs({ ...knobs, tone: t }); setKnobsDirty(true); }}
+                  className={`flex-1 px-2 py-1 ${
+                    knobs.tone === t
+                      ? "bg-stone-900 text-white dark:bg-stone-100 dark:text-stone-900"
+                      : ""
+                  }`}
+                >
+                  {TONE_LABELS[t]}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div>
+            <span className="text-sm font-medium">Lead with</span>
+            <p className="text-xs text-stone-500">
+              {leadOptions.length === 0
+                ? "Parse your CV first to choose."
+                : "Picked entries anchor the letter's evidence."}
+            </p>
+            <div className="mt-1 space-y-1 max-h-32 overflow-y-auto">
+              {leadOptions.map((o) => (
+                <label key={o.ref} className="flex items-start gap-1.5 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={knobs.leadRefs.includes(o.ref)}
+                    onChange={() => {
+                      const next = knobs.leadRefs.includes(o.ref)
+                        ? knobs.leadRefs.filter((r) => r !== o.ref)
+                        : [...knobs.leadRefs, o.ref];
+                      setKnobs({ ...knobs, leadRefs: next });
+                      setKnobsDirty(true);
+                    }}
+                  />
+                  <span>{o.label}</span>
+                </label>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        <div>
+          <span className="text-sm font-medium">Anything specific to say?</span>
+          <p className="text-xs text-stone-500 mb-1">
+            Goes straight into the prompt — e.g. “mention I want to work on their
+            EV charging line specifically”.
+          </p>
+          <textarea
+            value={knobs.extraInstructions}
+            onChange={(e) => {
+              setKnobs({ ...knobs, extraInstructions: e.target.value });
+              setKnobsDirty(true);
+            }}
+            rows={2}
+            maxLength={1500}
+            className="w-full rounded border border-stone-300 dark:border-stone-700 bg-white dark:bg-stone-900 px-2 py-1 text-sm"
+          />
+        </div>
+      </section>
 
       <div className="grid lg:grid-cols-2 gap-6">
         {/* left: research bundle */}
@@ -207,6 +338,17 @@ export default function ApplicationDetail({
             )}
           </div>
 
+          {current?.used_facts && current.used_facts.length > 0 && (
+            <p className="text-xs text-stone-500">
+              Drew on your facts bank:{" "}
+              {current.used_facts.map((f) => (
+                <span key={f} className="rounded bg-stone-200 dark:bg-stone-800 px-1.5 py-0.5 mr-1">
+                  {f}
+                </span>
+              ))}
+            </p>
+          )}
+
           {current ? (
             <>
               <textarea
@@ -238,7 +380,7 @@ export default function ApplicationDetail({
           <h2 className="text-lg font-medium mb-2">
             Critique — {app.critique.overall_score}/10
           </h2>
-          <div className="grid md:grid-cols-3 gap-4 text-sm">
+          <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-4 text-sm">
             <CritiqueList
               title="Unsupported claims"
               tone="red"
@@ -248,6 +390,11 @@ export default function ApplicationDetail({
               title="Generic sentences"
               tone="amber"
               items={app.critique.generic_sentences?.map((c) => `[${c.document}] ${c.text}`)}
+            />
+            <CritiqueList
+              title="Doesn't sound like you"
+              tone="amber"
+              items={app.critique.voice_mismatches?.map((v) => `“${v.text}” — ${v.why}`)}
             />
             <CritiqueList
               title="Suggestions"

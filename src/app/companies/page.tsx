@@ -26,6 +26,24 @@ export default function CompaniesPage() {
   }, []);
   useEffect(() => { load(); }, [load]);
 
+  async function seed() {
+    setBusy("Seeding known UK engineering employers…");
+    setResult(null);
+    try {
+      const res = await fetch("/api/seed-employers", { method: "POST" });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error ?? "seeding failed");
+      setResult(
+        `${json.candidates} candidates: ${json.inserted} added, ${json.linked_existing} linked to existing rows. Run enrichment next to detect their ATS boards.`
+      );
+      await load();
+    } catch (e) {
+      setResult(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(null);
+    }
+  }
+
   async function discover() {
     setBusy("Searching Companies House by engineering SIC codes…");
     setResult(null);
@@ -49,6 +67,24 @@ export default function CompaniesPage() {
   return (
     <div className="space-y-6">
       <h1 className="text-2xl font-semibold">Companies</h1>
+
+      <div className="rounded border border-stone-300 dark:border-stone-800 bg-white dark:bg-stone-900 p-4 space-y-2">
+        <h2 className="font-medium text-sm">Seed known UK engineering employers</h2>
+        <p className="text-xs text-stone-500">
+          Adds a curated list of aerospace, semiconductor, power, automotive and
+          instrumentation employers. Enrichment then detects which use
+          Greenhouse, Lever, Ashby or Workable — and those boards return their
+          complete live vacancy list as structured data, which beats scraping an
+          aggregator&apos;s index of the same roles.
+        </p>
+        <button
+          onClick={seed}
+          disabled={!!busy}
+          className="rounded bg-stone-900 dark:bg-stone-100 text-white dark:text-stone-900 px-4 py-1.5 text-sm font-medium disabled:opacity-50"
+        >
+          Seed employers
+        </button>
+      </div>
 
       <div className="rounded border border-stone-300 dark:border-stone-800 bg-white dark:bg-stone-900 p-4 space-y-3">
         <h2 className="font-medium text-sm">

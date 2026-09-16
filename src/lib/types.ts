@@ -50,10 +50,46 @@ export type TailoredCv = {
   skills_line?: string;
 };
 
+export type StyleProfile = {
+  summary: string;                    // 2-3 sentences a human can sanity-check
+  avg_sentence_length: number;
+  sentence_rhythm: string;            // e.g. "mostly medium, occasional short punch"
+  tone: string[];                     // e.g. ["direct", "understated", "dry"]
+  typical_vocabulary: string[];       // words/phrases they genuinely use
+  avoid_vocabulary: string[];         // words they would never use
+  punctuation_habits: string[];
+  structural_habits: string[];        // how they open, order, and close
+  dos: string[];
+  donts: string[];
+};
+
+export type PersonalFact = {
+  id: string;
+  prompt_key: string;
+  question: string;
+  answer: string | null;
+  themes: string[];
+};
+
+export type Tone = "formal" | "balanced" | "conversational";
+
+export const TONE_LABELS: Record<Tone, string> = {
+  formal: "Formal",
+  balanced: "Balanced",
+  conversational: "Conversational",
+};
+
+export type GenerationKnobs = {
+  tone: Tone;
+  leadRefs: string[];            // CV entry ids to lead with, e.g. ["proj-2", "exp-1"]
+  extraInstructions?: string | null;
+};
+
 export type Critique = {
   overall_score: number; // 0-10
   unsupported_claims: { text: string; document: "cv" | "cover_letter" }[];
   generic_sentences: { text: string; document: "cv" | "cover_letter" }[];
+  voice_mismatches?: { text: string; why: string }[];
   length_issues: string[];
   suggestions: string[];
 };
