@@ -15,18 +15,14 @@ Stack: Next.js 15 (App Router) · Supabase (Postgres + pgvector + Auth + Storage
    - `0002_placement_types.sql` — summer vs year-long classification, agency flag
    - `0003_voice_and_facts.sql` — style profile, facts bank, letter knobs, learning loop
 
-   In Authentication → URL Configuration set the Site URL to
-   `http://localhost:3000` and add `http://localhost:3000/auth/confirm` to the
-   redirect URLs (add your Vercel URL too once deployed).
 2. **Keys** — copy `.env.example` to `.env.local` and fill it in.
-3. `npm install && npm run dev`, then sign in at `http://localhost:3000/login`.
+3. `npm install && npm run dev`, then open `http://localhost:3000/login` and
+   use **Create account**.
 
-**Signing in:** there is no password — the emailed link is the login. Open it
-on the same computer and in the same browser you requested it from; a link
-opened elsewhere fails by design. Supabase's built-in mailer sends only a few
-emails an hour — when you hit that limit locally, set `DEV_LOGIN_EMAIL` and use
-the **Dev sign-in** button, which logs that account in without an email. It
-only exists under `npm run dev`, which listens on 127.0.0.1 alone.
+**Signing in:** email and password. Accounts are created already confirmed on
+the server, so no email is ever sent and Supabase's mailer rate limit doesn't
+apply. There is no password reset flow yet — to reset, set a new password on
+the user in the Supabase dashboard (Authentication → Users).
 
 ## First run
 
