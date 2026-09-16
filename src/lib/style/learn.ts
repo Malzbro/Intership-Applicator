@@ -109,7 +109,7 @@ Rules:
       `EDITS (${diffs.length} drafts the person rewrote):`,
       ...diffs,
     ].join("\n\n"),
-    maxTokens: 3000,
+    task: "review",
   });
 
   await db.from("style_revisions").insert({

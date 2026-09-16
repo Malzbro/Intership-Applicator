@@ -45,7 +45,7 @@ HARD RULE: every claim must be traceable to the provided pages or job descriptio
       ...opts.pages.map((p) => `=== ${p.kind.toUpperCase()} ${p.url} ===\n${p.text.slice(0, 10000)}`),
       `=== JOB DESCRIPTION ===\n${opts.jobDescription.slice(0, 10000)}`,
     ].join("\n\n"),
-    maxTokens: 3000,
+    task: "extract",
   });
 }
 
@@ -71,7 +71,7 @@ ${JSON.stringify(opts.cv, null, 2)}
 
 COMPANY RESEARCH (vocabulary and priorities to mirror):
 ${JSON.stringify(opts.research, null, 2)}`,
-    maxTokens: 4000,
+    task: "write",
   });
 }
 
@@ -150,7 +150,7 @@ OUTPUT FORMAT — exactly this, nothing else:
     ]
       .filter(Boolean)
       .join("\n\n"),
-    maxTokens: 2000,
+    task: "write",
   });
 
   const letter = raw.match(/<letter>([\s\S]*?)<\/letter>/)?.[1]?.trim() ?? raw.trim();
@@ -193,7 +193,7 @@ Flag: any claim not supported by the research bundle or CV structure; any senten
     ]
       .filter(Boolean)
       .join("\n\n"),
-    maxTokens: 2000,
+    task: "review",
   });
 }
 

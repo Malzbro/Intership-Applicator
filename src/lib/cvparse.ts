@@ -22,7 +22,7 @@ export async function parseCvText(text: string): Promise<ParsedCv> {
 }
 Rules: ids are sequential (proj-1, proj-2, exp-1...). Copy facts verbatim where possible. NEVER invent anything not in the text. Omit unknown optional fields rather than guessing.`,
     user: `Parse this CV:\n\n${text.slice(0, 30000)}`,
-    maxTokens: 4000,
+    task: "extract",
   });
 }
 

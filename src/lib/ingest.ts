@@ -43,10 +43,9 @@ export async function runSource(
         const hash = dedupeHash(job);
         if (seenHashes.has(hash)) continue;
         seenHashes.add(hash);
-        const companyId = await upsertCompany(db, job);
-        const res = await upsertJob(db, job, hash, companyId);
-        if (res === "inserted") inserted++;
-        else if (res === "updated") updated++;
+        const { status } = await saveJob(db, job);
+        if (status === "inserted") inserted++;
+        else updated++;
       } catch (e) {
         errors.push(`${job.source_ref}: ${e instanceof Error ? e.message : e}`);
       }
@@ -89,11 +88,24 @@ function startOfRun(iso: string): string {
   return new Date(new Date(iso).getTime() - 20 * 3600_000).toISOString();
 }
 
-async function upsertCompany(db: SupabaseClient, job: NormalisedJob): Promise<string | null> {
+export async function saveJob(
+  db: SupabaseClient,
+  job: NormalisedJob
+): Promise<{ status: "inserted" | "updated"; jobId: string; companyId: string | null }> {
+  const hash = dedupeHash(job);
+  const companyId = await upsertCompany(db, job);
+  const { status, jobId } = await upsertJob(db, job, hash, companyId);
+  return { status, jobId, companyId };
+}
+
+export async function upsertCompany(
+  db: SupabaseClient,
+  job: Pick<NormalisedJob, "company_name" | "company_domain">
+): Promise<string | null> {
   const domain = normaliseDomain(job.company_domain);
   const isAgency = looksLikeAgency(job.company_name);
   if (domain) {
-    const { data } = await db
+    const { data, error } = await db
       .from("companies")
       .upsert(
         { name: job.company_name, domain, is_agency: isAgency },
@@ -101,7 +113,8 @@ async function upsertCompany(db: SupabaseClient, job: NormalisedJob): Promise<st
       )
       .select("id")
       .single();
-    return data?.id ?? null;
+    if (error) throw new Error(`company upsert: ${error.message}`);
+    return data.id;
   }
   const { data: existing } = await db
     .from("companies")
@@ -110,12 +123,13 @@ async function upsertCompany(db: SupabaseClient, job: NormalisedJob): Promise<st
     .limit(1)
     .maybeSingle();
   if (existing) return existing.id;
-  const { data } = await db
+  const { data, error } = await db
     .from("companies")
     .insert({ name: job.company_name, is_agency: isAgency })
     .select("id")
     .single();
-  return data?.id ?? null;
+  if (error) throw new Error(`company insert: ${error.message}`);
+  return data.id;
 }
 
 async function upsertJob(
@@ -123,7 +137,7 @@ async function upsertJob(
   job: NormalisedJob,
   hash: string,
   companyId: string | null
-): Promise<"inserted" | "updated"> {
+): Promise<{ status: "inserted" | "updated"; jobId: string }> {
   const now = new Date().toISOString();
   const { data: existing } = await db
     .from("jobs")
@@ -132,13 +146,14 @@ async function upsertJob(
     .maybeSingle();
 
   if (existing) {
-    await db
+    const { error } = await db
       .from("jobs")
       .update({ last_seen_at: now, miss_count: 0, is_open: true, url: job.url })
       .eq("id", existing.id);
-    return "updated";
+    if (error) throw new Error(`job update: ${error.message}`);
+    return { status: "updated", jobId: existing.id };
   }
-  await db.from("jobs").insert({
+  const { data, error } = await db.from("jobs").insert({
     company_id: companyId,
     source: job.source,
     source_ref: job.source_ref,
@@ -155,6 +170,7 @@ async function upsertJob(
     dedupe_hash: hash,
     first_seen_at: now,
     last_seen_at: now,
-  });
-  return "inserted";
+  }).select("id").single();
+  if (error) throw new Error(`job insert: ${error.message}`);
+  return { status: "inserted", jobId: data.id };
 }

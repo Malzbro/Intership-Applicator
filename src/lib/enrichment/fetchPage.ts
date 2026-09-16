@@ -11,7 +11,7 @@ async function politeDelay(host: string, minMs = 1000) {
   lastHit.set(host, Date.now());
 }
 
-async function robotsAllows(origin: string, path: string): Promise<boolean> {
+export async function robotsAllows(origin: string, path: string): Promise<boolean> {
   try {
     const res = await fetch(`${origin}/robots.txt`, {
       headers: { "User-Agent": UA },

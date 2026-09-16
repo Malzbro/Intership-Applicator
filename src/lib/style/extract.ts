@@ -35,7 +35,7 @@ Rules:
           `=== SAMPLE ${i + 1}${s.kind ? ` (${s.kind})` : ""}${s.label ? ` — ${s.label}` : ""} ===\n${s.content.slice(0, 8000)}`
       )
       .join("\n\n"),
-    maxTokens: 2500,
+    task: "review",
   });
 }
 

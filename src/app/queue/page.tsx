@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import AddJobByLink from "@/components/AddJobByLink";
 import { createClient } from "@/lib/supabase/client";
 import { PLACEMENT_TYPE_LABELS, type PlacementType } from "@/lib/classify";
 import type { MatchReasons } from "@/lib/types";
@@ -81,6 +82,8 @@ export default function QueuePage() {
           {visible.length} shown{visible.length !== items.length && ` of ${items.length}`}
         </span>
       </div>
+
+      <AddJobByLink />
 
       <div className="flex gap-4 text-sm">
         <label className="flex items-center gap-1.5">

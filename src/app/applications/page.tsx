@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
+import AddJobByLink from "@/components/AddJobByLink";
 import { createClient } from "@/lib/supabase/client";
 import { APPLICATION_STATUSES, type ApplicationStatus } from "@/lib/types";
 
@@ -54,7 +55,10 @@ export default function ApplicationsPage() {
 
   return (
     <div className="space-y-4">
-      <h1 className="text-2xl font-semibold">Applications</h1>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <h1 className="text-2xl font-semibold">Applications</h1>
+        <AddJobByLink onAdded={load} />
+      </div>
       {apps.length === 0 && (
         <p className="text-sm text-stone-500">
           Nothing yet — shortlist jobs from the <Link href="/queue" className="underline">queue</Link>.

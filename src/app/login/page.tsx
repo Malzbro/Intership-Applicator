@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 
 export default function LoginPage() {
@@ -8,6 +8,15 @@ export default function LoginPage() {
   const [sent, setSent] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    const reason = new URLSearchParams(window.location.search).get("error");
+    if (reason) {
+      setError(
+        `That link didn't work (${reason}). Links expire after one use and must be opened in the same browser you requested them from. Send a fresh one below.`
+      );
+    }
+  }, []);
 
   async function sendLink(e: React.FormEvent) {
     e.preventDefault();

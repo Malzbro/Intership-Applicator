@@ -9,10 +9,13 @@ const CAREERS_PATHS = ["/careers", "/careers/", "/jobs", "/join-us", "/about/car
 const ABOUT_PATHS = ["/about", "/about-us", "/company", "/who-we-are"];
 
 const ATS_PATTERNS: [string, RegExp][] = [
-  ["greenhouse", /boards\.greenhouse\.io\/([a-z0-9-]+)|greenhouse\.io\/embed\/job_board\?for=([a-z0-9-]+)/i],
-  ["lever", /jobs\.lever\.co\/([a-z0-9-]+)/i],
-  ["ashby", /jobs\.ashbyhq\.com\/([a-z0-9-]+)/i],
-  ["workable", /apply\.workable\.com\/([a-z0-9-]+)/i],
+  [
+    "greenhouse",
+    /greenhouse\.io\/embed\/job_(?:board|app)[^"'\s]*?[?&]for=([a-z0-9_-]+)|(?:job-)?boards\.greenhouse\.io\/(?!embed\b)([a-z0-9_-]+)/i,
+  ],
+  ["lever", /jobs\.lever\.co\/([a-z0-9_-]+)/i],
+  ["ashby", /jobs\.ashbyhq\.com\/([a-z0-9_.-]+)/i],
+  ["workable", /apply\.workable\.com\/(?!api\b)([a-z0-9_-]+)/i],
 ];
 
 export function detectAts(html: string): { type: string; slug: string } | null {
@@ -96,7 +99,7 @@ Every values/news entry MUST quote text present in the provided pages and cite t
         user: pages
           .map((p) => `=== ${p.kind.toUpperCase()} ${p.url} ===\n${p.text.slice(0, 12000)}`)
           .join("\n\n"),
-        maxTokens: 2000,
+        task: "bulk",
       });
     }
 

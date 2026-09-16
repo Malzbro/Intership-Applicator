@@ -70,7 +70,7 @@ async function askClaude(name: string): Promise<string | null> {
       system: `You map UK/EU employer names to their primary corporate website domain. Return ONLY JSON: {"domain": "example.com", "confident": true}.
 Rules: bare registrable domain, no scheme, no www, no path. Use the careers-hosting corporate domain, not a job board. If you do not actually know this specific company, return {"domain": null, "confident": false} — a guess is worse than nothing.`,
       user: `Company name: ${name}`,
-      maxTokens: 200,
+      task: "bulk",
     });
     return out.confident && out.domain ? normaliseDomain(out.domain) ?? null : null;
   } catch {
