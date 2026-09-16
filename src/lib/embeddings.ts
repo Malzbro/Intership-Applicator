@@ -1,3 +1,5 @@
+import { clean } from "@/lib/env";
+
 // Voyage AI embeddings — 1024 dimensions, matches vector(1024) columns.
 const VOYAGE_URL = "https://api.voyageai.com/v1/embeddings";
 const MODEL = "voyage-3.5";
@@ -10,7 +12,7 @@ export async function embed(
   const res = await fetch(VOYAGE_URL, {
     method: "POST",
     headers: {
-      Authorization: `Bearer ${process.env.VOYAGE_API_KEY}`,
+      Authorization: `Bearer ${clean(process.env.VOYAGE_API_KEY)}`,
       "Content-Type": "application/json",
     },
     body: JSON.stringify({

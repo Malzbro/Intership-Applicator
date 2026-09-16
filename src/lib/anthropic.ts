@@ -1,6 +1,7 @@
 import Anthropic from "@anthropic-ai/sdk";
+import { clean } from "@/lib/env";
 
-export const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+export const anthropic = new Anthropic({ apiKey: clean(process.env.ANTHROPIC_API_KEY) });
 
 // Every call names its task; the task picks the model and how hard it thinks.
 //   bulk    — runs over hundreds of rows (company summaries, domain lookups,
@@ -11,8 +12,8 @@ export const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY }
 //   review  — critique and style-profile work.
 export type Task = "bulk" | "extract" | "write" | "review";
 
-export const MODEL = process.env.ANTHROPIC_MODEL || "claude-opus-5";
-export const BULK_MODEL = process.env.ANTHROPIC_MODEL_BULK || MODEL;
+export const MODEL = clean(process.env.ANTHROPIC_MODEL) || "claude-opus-5";
+export const BULK_MODEL = clean(process.env.ANTHROPIC_MODEL_BULK) || MODEL;
 
 const EFFORT: Record<Task, "low" | "medium" | "high"> = {
   bulk: "low",

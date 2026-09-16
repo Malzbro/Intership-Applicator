@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
+import { allowedSignupEmails } from "@/lib/env";
 
 const MIN_PASSWORD = 8;
 
@@ -17,6 +18,16 @@ export async function POST(request: NextRequest) {
     return back(request, `Use a password of at least ${MIN_PASSWORD} characters.`, email);
   }
   if (password !== confirm) return back(request, "The passwords don't match.", email);
+
+  // A public deployment would otherwise let anyone register and spend your API
+  // credit. Locally, with no list set, sign-up stays open.
+  const allowed = allowedSignupEmails();
+  if (!allowed && process.env.NODE_ENV === "production") {
+    return back(request, "Sign-up is closed. Set ALLOWED_SIGNUP_EMAILS on the deployment to allow your email.", email);
+  }
+  if (allowed && !allowed.includes(email)) {
+    return back(request, "This email isn't allowed to create an account here.", email);
+  }
 
   const admin = createAdminClient();
   const { error: createError } = await admin.auth.admin.createUser({
@@ -40,6 +51,12 @@ export async function POST(request: NextRequest) {
       if (error) return back(request, error.message, email);
     } else if (existing) {
       return back(request, "An account with this email already exists — sign in instead.", email, "login");
+    } else if (/invalid api key|jwt|unauthorized/i.test(createError.message)) {
+      return back(
+        request,
+        "This site's Supabase service-role key is wrong or missing. Open /api/health on this site to see which setting to fix.",
+        email
+      );
     } else {
       return back(request, createError.message, email);
     }
