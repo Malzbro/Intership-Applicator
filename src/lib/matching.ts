@@ -5,7 +5,6 @@ import { embed, embedOne } from "@/lib/embeddings";
 import { cvToEmbeddingText } from "@/lib/cvparse";
 
 // ---------- hard filters ----------
-const INTERN_RE = /\b(intern(ship)?|placement|summer|industrial|year in industry|sandwich|graduate scheme|undergraduate)\b/i;
 const SENIOR_RE = /\b(senior|lead|principal|staff|head of|director|manager)\b/i;
 const VISA_RE = /\b(no sponsorship|unable to sponsor|cannot sponsor|must have (the )?right to work|sc clearance|security clearance required)\b/i;
 
@@ -14,12 +13,16 @@ export function hardFilter(job: {
   description?: string | null;
   closes_at?: string | null;
   location?: string | null;
+  placement_type?: string | null;
 }, profile: { locations?: string[] | null; eligibility?: string | null }): { pass: boolean; notes: string[] } {
   const notes: string[] = [];
   const text = `${job.title} ${job.description ?? ""}`;
 
-  if (!INTERN_RE.test(text)) return { pass: false, notes: ["not an internship/placement"] };
-  notes.push("internship/placement term matched");
+  // Same classifier as the badges, so a role is only in the queue if it is
+  // recognisably a student role — not because its description says "industrial".
+  const type = classifyPlacement(job.title, job.description);
+  if (!type) return { pass: false, notes: ["not a student role"] };
+  notes.push(PLACEMENT_TYPE_LABELS[type]);
 
   if (SENIOR_RE.test(job.title)) return { pass: false, notes: ["senior-level title"] };
 
@@ -124,6 +127,12 @@ export function ruleScore(
 }
 
 // ---------- full run ----------
+// Sized for Voyage's no-payment-method limits (3 requests, 10K tokens a minute):
+// 12 roles × ~2,400 chars ≈ 7K tokens per request.
+const EMBED_BATCH = 12;
+const EMBED_CHARS = 2400;
+// leaves the rest of the 300s function limit for scoring and writes
+const EMBEDDING_BUDGET_MS = 150_000;
 export async function computeMatches(db: SupabaseClient, profileId: string) {
   const { data: profile } = await db
     .from("profiles").select("*").eq("id", profileId).single();
@@ -137,42 +146,23 @@ export async function computeMatches(db: SupabaseClient, profileId: string) {
 
   const cv = cvDoc.parsed as ParsedCv;
 
-  // ensure CV embedding
+  // Embeddings sharpen the score but are optional: if Voyage is unavailable or
+  // rate-limited, matches are still written from the keyword rules and the
+  // similarity fills in on a later run.
+  const deadline = Date.now() + EMBEDDING_BUDGET_MS;
+  let embeddingNote: string | null = process.env.VOYAGE_API_KEY ? null : "VOYAGE_API_KEY not set";
+  let embeddedJobs = 0;
+
   let cvEmbedding: number[] | null = cvDoc.embedding
     ? JSON.parse(cvDoc.embedding as unknown as string)
     : null;
-  if (!cvEmbedding && process.env.VOYAGE_API_KEY) {
-    cvEmbedding = await embedOne(cvToEmbeddingText(cv), "query");
-    await db.from("cv_documents").update({ embedding: cvEmbedding }).eq("id", cvDoc.id);
-  }
-
-  // embed jobs that lack embeddings (requirements section preferred over fluff)
-  if (process.env.VOYAGE_API_KEY) {
-    const { data: pending } = await db
-      .from("jobs")
-      .select("id, title, description, requirements")
-      .eq("is_open", true)
-      .is("embedding", null)
-      .limit(200);
-    for (let i = 0; i < (pending ?? []).length; i += 32) {
-      const batch = pending!.slice(i, i + 32);
-      const vecs = await embed(
-        batch.map((j) => `${j.title}\n${j.requirements ?? j.description ?? ""}`.slice(0, 8000))
-      );
-      for (let k = 0; k < batch.length; k++) {
-        await db.from("jobs").update({ embedding: vecs[k] }).eq("id", batch[k].id);
-      }
+  if (!cvEmbedding && !embeddingNote) {
+    try {
+      cvEmbedding = await embedOne(cvToEmbeddingText(cv), "query", { deadline });
+      await db.from("cv_documents").update({ embedding: cvEmbedding }).eq("id", cvDoc.id);
+    } catch (e) {
+      embeddingNote = e instanceof Error ? e.message : String(e);
     }
-  }
-
-  // vector candidates
-  const vectorScores = new Map<string, number>();
-  if (cvEmbedding) {
-    const { data: sims } = await db.rpc("match_jobs", {
-      query_embedding: cvEmbedding,
-      match_count: 300,
-    });
-    for (const s of sims ?? []) vectorScores.set(s.job_id, s.similarity);
   }
 
   const { data: jobs } = await db
@@ -183,20 +173,65 @@ export async function computeMatches(db: SupabaseClient, profileId: string) {
     .eq("is_open", true)
     .limit(2000);
 
+  // filter first, so only roles that can appear in the queue spend embedding quota
+  const candidates = (jobs ?? [])
+    .map((job) => ({ job, hf: hardFilter(job, profile) }))
+    .filter((c) => c.hf.pass);
+
+  if (cvEmbedding && !embeddingNote) {
+    const { data: unembedded } = await db
+      .from("jobs")
+      .select("id")
+      .eq("is_open", true)
+      .is("embedding", null)
+      .in("id", candidates.map((c) => c.job.id).slice(0, 1000));
+    const pendingIds = new Set((unembedded ?? []).map((r) => r.id));
+    const pending = candidates.map((c) => c.job).filter((j) => pendingIds.has(j.id));
+
+    for (let i = 0; i < pending.length && Date.now() < deadline; i += EMBED_BATCH) {
+      const batch = pending.slice(i, i + EMBED_BATCH);
+      try {
+        const vecs = await embed(
+          batch.map((j) => `${j.title}\n${j.requirements ?? j.description ?? ""}`.slice(0, EMBED_CHARS)),
+          "document",
+          { deadline }
+        );
+        for (let k = 0; k < batch.length; k++) {
+          await db.from("jobs").update({ embedding: vecs[k] }).eq("id", batch[k].id);
+        }
+        embeddedJobs += batch.length;
+      } catch (e) {
+        embeddingNote = e instanceof Error ? e.message : String(e);
+        break;
+      }
+    }
+    if (!embeddingNote && embeddedJobs < pending.length) {
+      embeddingNote = `embedded ${embeddedJobs} of ${pending.length} roles this run; the rest continue next run`;
+    }
+  }
+
+  const vectorScores = new Map<string, number>();
+  if (cvEmbedding) {
+    const { data: sims } = await db.rpc("match_jobs", {
+      query_embedding: cvEmbedding,
+      match_count: 1000,
+    });
+    for (const s of sims ?? []) vectorScores.set(s.job_id, s.similarity);
+  }
+
   const preferredTypes = (profile.preferred_types ?? []) as string[];
   let computed = 0;
-  for (const job of jobs ?? []) {
-    const hf = hardFilter(job, profile);
-    if (!hf.pass) continue;
-
+  for (const { job, hf } of candidates) {
     const jobText = `${job.title} ${job.requirements ?? ""} ${job.description ?? ""}`;
     const rules = ruleScore(jobText, cv);
-    const vec = vectorScores.get(job.id) ?? 0.5;
+    const measured = vectorScores.get(job.id);
+    const vec = measured ?? 0.5;
 
     const company = job.companies as unknown as { is_agency: boolean } | null;
-    const placementType =
-      (job.placement_type as PlacementType | null) ??
-      classifyPlacement(job.title, job.description);
+    const placementType = classifyPlacement(job.title, job.description);
+    if (placementType !== job.placement_type) {
+      await db.from("jobs").update({ placement_type: placementType }).eq("id", job.id);
+    }
     const pref = preferenceFactor({
       placementType,
       preferredTypes,
@@ -210,9 +245,14 @@ export async function computeMatches(db: SupabaseClient, profileId: string) {
       hard_filters: hf.notes,
       keyword_hits: rules.hits,
       preference: pref.notes,
-      summary: rules.hits.length
-        ? `Matched on ${rules.hits.slice(0, 3).map((h) => h.keyword).join(", ")}; vector similarity ${(vec * 100).toFixed(0)}%.`
-        : `Passed filters; vector similarity ${(vec * 100).toFixed(0)}% but no specific keyword overlap.`,
+      summary: [
+        rules.hits.length
+          ? `Matched on ${rules.hits.slice(0, 3).map((h) => h.keyword).join(", ")}.`
+          : "No specific skill overlap with your CV.",
+        measured !== undefined
+          ? `Overall similarity to your CV ${(measured * 100).toFixed(0)}%.`
+          : "Similarity to your CV not measured yet.",
+      ].join(" "),
     };
 
     await db.from("matches").upsert(
@@ -229,5 +269,19 @@ export async function computeMatches(db: SupabaseClient, profileId: string) {
     );
     computed++;
   }
-  return { computed };
+
+  // a role that no longer passes the filters (closed, reclassified, outside a
+  // newly chosen region) leaves the queue; dismissed rows stay as history
+  const candidateIds = new Set(candidates.map((c) => c.job.id));
+  const { data: existing } = await db
+    .from("matches")
+    .select("id, job_id")
+    .eq("profile_id", profileId)
+    .eq("dismissed", false);
+  const stale = (existing ?? []).filter((m) => !candidateIds.has(m.job_id)).map((m) => m.id);
+  for (let i = 0; i < stale.length; i += 100) {
+    await db.from("matches").delete().in("id", stale.slice(i, i + 100));
+  }
+
+  return { computed, removed: stale.length, candidates: candidates.length, embeddedJobs, embeddingNote };
 }

@@ -29,6 +29,15 @@ const RULES: [PlacementType, RegExp][] = [
   ["internship_other", /\bintern(ship)?\b|\bplacement\b|\bundergraduate\b|\bstudent\b/i],
 ];
 
+// In a description the generic words are unreliable: agencies call every job
+// a "placement", and "student" turns up in benefits blurbs. There, only an
+// explicit internship phrase counts as an unspecified internship.
+const BODY_RULES: [PlacementType, RegExp][] = RULES.map(([type, re]) =>
+  type === "internship_other"
+    ? [type, /\binternship\b|\bintern programme\b|\bundergraduate (placement|internship)\b|\bstudent placement\b/i]
+    : [type, re]
+);
+
 export function classifyPlacement(
   title: string,
   description?: string | null
@@ -36,7 +45,7 @@ export function classifyPlacement(
   // the title is authoritative; the description is a weaker fallback
   for (const [type, re] of RULES) if (re.test(title)) return type;
   const body = (description ?? "").slice(0, 4000);
-  for (const [type, re] of RULES) if (re.test(body)) return type;
+  for (const [type, re] of BODY_RULES) if (re.test(body)) return type;
   return null;
 }
 
