@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { BULK_MODEL, MODEL } from "@/lib/anthropic";
 import { clean } from "@/lib/env";
 
 export const dynamic = "force-dynamic";
@@ -105,15 +106,27 @@ export async function GET() {
 
   const anthropicKey = clean(process.env.ANTHROPIC_API_KEY);
   if (anthropicKey) {
+    const headers = { "x-api-key": anthropicKey, "anthropic-version": "2023-06-01" };
     try {
-      const res = await fetch("https://api.anthropic.com/v1/models?limit=1", {
-        headers: { "x-api-key": anthropicKey, "anthropic-version": "2023-06-01" },
-        cache: "no-store",
-      });
+      const res = await fetch("https://api.anthropic.com/v1/models?limit=1", { headers, cache: "no-store" });
       checks.anthropic_key_accepted = {
         ok: res.ok,
         detail: res.ok ? "Anthropic accepted the key" : `Anthropic rejected the key (HTTP ${res.status})`,
       };
+      if (res.ok) {
+        for (const [label, id] of [
+          ["ANTHROPIC_MODEL", MODEL],
+          ["ANTHROPIC_MODEL_BULK", BULK_MODEL],
+        ] as const) {
+          const m = await fetch(`https://api.anthropic.com/v1/models/${encodeURIComponent(id)}`, { headers, cache: "no-store" });
+          checks[`${label}_exists`] = {
+            ok: m.ok,
+            detail: m.ok
+              ? `using ${id}`
+              : `"${id}" isn't a model this key can use — check the spelling, e.g. claude-opus-5 or claude-haiku-4-5`,
+          };
+        }
+      }
     } catch {
       checks.anthropic_key_accepted = { ok: false, detail: "couldn't reach Anthropic" };
     }

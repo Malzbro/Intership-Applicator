@@ -12,8 +12,12 @@ export const anthropic = new Anthropic({ apiKey: clean(process.env.ANTHROPIC_API
 //   review  — critique and style-profile work.
 export type Task = "bulk" | "extract" | "write" | "review";
 
-export const MODEL = clean(process.env.ANTHROPIC_MODEL) || "claude-opus-5";
-export const BULK_MODEL = clean(process.env.ANTHROPIC_MODEL_BULK) || MODEL;
+// Model IDs are case-sensitive on the API ("Claude-haiku-4-5" is a 404), so a
+// value typed into a dashboard is normalised before use.
+const modelId = (value: string | undefined) => clean(value).toLowerCase().replace(/\s+/g, "-");
+
+export const MODEL = modelId(process.env.ANTHROPIC_MODEL) || "claude-opus-5";
+export const BULK_MODEL = modelId(process.env.ANTHROPIC_MODEL_BULK) || MODEL;
 
 const EFFORT: Record<Task, "low" | "medium" | "high"> = {
   bulk: "low",
