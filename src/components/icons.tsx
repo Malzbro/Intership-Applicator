@@ -57,6 +57,25 @@ export const DocIcon = (p: IconProps) => (
   <Svg {...p}><path d="M9 2.5H5A1.5 1.5 0 0 0 3.5 4v8A1.5 1.5 0 0 0 5 13.5h6a1.5 1.5 0 0 0 1.5-1.5V6L9 2.5Z" /><path d="M9 2.5V6h3.5M6 9h4M6 11h2.5" /></Svg>
 );
 
+export const SearchIcon = (p: IconProps) => (
+  <Svg {...p}><circle cx="7" cy="7" r="4.25" /><path d="m10.25 10.25 3 3" /></Svg>
+);
+export const CalendarIcon = (p: IconProps) => (
+  <Svg {...p}><rect x="2.75" y="3.5" width="10.5" height="10" rx="1.5" /><path d="M2.75 6.75h10.5M5.5 2.25v2.5M10.5 2.25v2.5" /></Svg>
+);
+export const BoardIcon = (p: IconProps) => (
+  <Svg {...p}><rect x="2.5" y="2.75" width="3.25" height="10.5" rx="1" /><rect x="7.25" y="2.75" width="3.25" height="7" rx="1" /><path d="M12.5 2.75v5" /></Svg>
+);
+export const ListIcon = (p: IconProps) => (
+  <Svg {...p}><path d="M5.75 4.5h7.5M5.75 8h7.5M5.75 11.5h7.5M2.75 4.5h.01M2.75 8h.01M2.75 11.5h.01" /></Svg>
+);
+export const ChevronLeftIcon = (p: IconProps) => (
+  <Svg {...p}><path d="M9.5 4 5.5 8l4 4" /></Svg>
+);
+export const ChevronRightIcon = (p: IconProps) => (
+  <Svg {...p}><path d="m6.5 4 4 4-4 4" /></Svg>
+);
+
 export function LogoMark({ size = 22 }: { size?: number }) {
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" aria-hidden="true">

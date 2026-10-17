@@ -2,6 +2,7 @@ import Link from "next/link";
 import { ArrowRightIcon, CheckIcon, ClockIcon } from "@/components/icons";
 import { Notice } from "@/components/ui";
 import { createClient } from "@/lib/supabase/server";
+import { daysUntil, dueChip, dueLabel, effectiveDeadline, isOpen } from "@/lib/deadlines";
 import type { ApplicationStatus } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
@@ -30,10 +31,6 @@ function greeting() {
     new Intl.DateTimeFormat("en-GB", { hour: "numeric", hour12: false, timeZone: "Europe/London" }).format(new Date())
   );
   return hour < 12 ? "Good morning" : hour < 18 ? "Good afternoon" : "Good evening";
-}
-
-function daysUntil(iso: string) {
-  return Math.ceil((new Date(iso).getTime() - Date.now()) / 86400_000);
 }
 
 export default async function Dashboard() {
@@ -85,8 +82,8 @@ export default async function Dashboard() {
   const stepsDone = steps.filter((s) => s.done).length;
 
   const deadlines = rows
-    .filter((a) => !["sent", "replied", "interview", "offer", "rejected"].includes(a.status))
-    .map((a) => ({ ...a, due: a.deadline ?? a.jobs?.closes_at ?? null }))
+    .filter((a) => isOpen(a.status))
+    .map((a) => ({ ...a, due: effectiveDeadline(a) }))
     .filter((a): a is typeof a & { due: string } => !!a.due && daysUntil(a.due) >= 0)
     .sort((a, b) => new Date(a.due).getTime() - new Date(b.due).getTime())
     .slice(0, 5);
@@ -149,8 +146,8 @@ export default async function Dashboard() {
           <section className="card">
             <div className="flex items-center justify-between px-5 pt-5 sm:px-6">
               <h2 className="section-title">Upcoming deadlines</h2>
-              <Link href="/applications" className="text-[13px] text-muted hover:text-fg transition-colors">
-                All applications
+              <Link href="/deadlines" className="text-[13px] text-muted hover:text-fg transition-colors">
+                All deadlines
               </Link>
             </div>
             {deadlines.length === 0 ? (
@@ -172,9 +169,9 @@ export default async function Dashboard() {
                           <p className="truncate text-sm font-medium">{d.jobs?.title}</p>
                           <p className="truncate text-[13px] text-muted">{d.jobs?.companies?.name ?? "Unknown company"}</p>
                         </div>
-                        <span className={`chip ${days <= 7 ? "chip-danger" : days <= 21 ? "chip-warn" : ""}`}>
+                        <span className={`chip ${dueChip(days)}`}>
                           <ClockIcon size={12} />
-                          {days === 0 ? "Today" : `${days}d`}
+                          {dueLabel(days)}
                         </span>
                       </Link>
                     </li>
