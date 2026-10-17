@@ -14,6 +14,8 @@ Stack: Next.js 15 (App Router) · Supabase (Postgres + pgvector + Auth + Storage
    - `0001_init.sql` — tables, RLS, storage buckets, sources
    - `0002_placement_types.sql` — summer vs year-long classification, agency flag
    - `0003_voice_and_facts.sql` — style profile, facts bank, letter knobs, learning loop
+   - `0004_employer_sectors.sql` — employer sector filter
+   - `0005_deadlines.sql` — reminder settings, calendar feed token, sent-reminder log
 
 2. **Keys** — copy `.env.example` to `.env.local` and fill it in.
 3. `npm install && npm run dev`, then open `http://localhost:3000/login` and
@@ -104,3 +106,16 @@ Push to GitHub → import in Vercel → set every variable from `.env.local` →
 add the Vercel URL to Supabase's redirect URLs. Cron schedules and function
 timeouts are already in `vercel.json`. Use fresh Supabase service-role and
 Anthropic keys for production rather than the ones used during development.
+
+## Deadlines
+
+`/deadlines` lists the closing date of every role you haven't sent yet. It uses
+the listing's date unless you set your own, and has an agenda and a month view.
+
+- **Calendar feed:** copy the private link on that page into Google Calendar
+  (*Other calendars → From URL*), Apple Calendar or Outlook. Anyone with the
+  link can read your deadlines; *Reset link* revokes it.
+- **Email reminders:** a daily cron (`/api/cron/reminders`, 07:00 UTC) emails
+  one digest when an unsent application crosses 7, 3 or 1 days out (choose on
+  the page). It needs `RESEND_API_KEY` and `REMINDER_FROM_EMAIL` on a verified
+  Resend domain; without them it does nothing.

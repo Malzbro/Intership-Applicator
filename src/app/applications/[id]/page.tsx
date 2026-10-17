@@ -1,10 +1,12 @@
 "use client";
 
 import { use, useCallback, useEffect, useState } from "react";
-import { ArrowUpRightIcon, DocIcon, SparkIcon } from "@/components/icons";
+import { ArrowUpRightIcon, ClockIcon, DocIcon, SparkIcon } from "@/components/icons";
 import { PageHeader, Status } from "@/components/ui";
 import { createClient } from "@/lib/supabase/client";
-import { TONE_LABELS, type Critique, type ParsedCv, type ResearchBundle, type Tone } from "@/lib/types";
+import { daysUntil, dueChip, dueLabel, effectiveDeadline, isOpen, londonDay, toDeadlineValue } from "@/lib/deadlines";
+import { STATUS_LABELS, updateStatus } from "@/lib/stages";
+import { APPLICATION_STATUSES, TONE_LABELS, type ApplicationStatus, type Critique, type ParsedCv, type ResearchBundle, type Tone } from "@/lib/types";
 
 type Doc = {
   id: string; kind: "cv" | "cover_letter"; version: number;
@@ -13,12 +15,12 @@ type Doc = {
 };
 
 type AppDetail = {
-  id: string; status: string; research: ResearchBundle | null;
+  id: string; status: ApplicationStatus; deadline: string | null; research: ResearchBundle | null;
   critique: Critique | null; notes: string | null;
   tone: Tone | null; lead_refs: string[] | null; extra_instructions: string | null;
   jobs: {
     title: string; url: string | null; location: string | null;
-    description: string | null;
+    description: string | null; closes_at: string | null;
     companies: { name: string; summary: string | null } | null;
   };
 };
@@ -45,7 +47,7 @@ export default function ApplicationDetail({ params }: { params: Promise<{ id: st
     const [{ data: a }, { data: d }, { data: cv }] = await Promise.all([
       supabase
         .from("applications")
-        .select("id, status, research, critique, notes, tone, lead_refs, extra_instructions, jobs(title, url, location, description, companies(name, summary))")
+        .select("id, status, deadline, research, critique, notes, tone, lead_refs, extra_instructions, jobs(title, url, location, description, closes_at, companies(name, summary))")
         .eq("id", id)
         .single(),
       supabase
@@ -75,6 +77,21 @@ export default function ApplicationDetail({ params }: { params: Promise<{ id: st
     }
   }, [id]);
   useEffect(() => { load(); }, [load]);
+
+  async function setStatus(status: ApplicationStatus) {
+    if (!app) return;
+    setApp({ ...app, status });
+    const { error } = await updateStatus(createClient(), id, status);
+    if (error) { setError(error.message); load(); }
+  }
+
+  async function setDeadline(day: string) {
+    if (!app) return;
+    const deadline = toDeadlineValue(day);
+    setApp({ ...app, deadline });
+    const { error } = await createClient().from("applications").update({ deadline }).eq("id", id);
+    if (error) { setError(error.message); load(); }
+  }
 
   async function saveKnobs() {
     setBusy("Saving personalisation…");
@@ -156,6 +173,8 @@ export default function ApplicationDetail({ params }: { params: Promise<{ id: st
 
   const edited = current && editText !== (current.content_md ?? "");
   const score = app.critique?.overall_score;
+  const due = effectiveDeadline(app);
+  const days = due && isOpen(app.status) ? daysUntil(due) : null;
 
   return (
     <>
@@ -166,7 +185,27 @@ export default function ApplicationDetail({ params }: { params: Promise<{ id: st
           <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
             <span className="font-medium text-fg/85">{app.jobs.companies?.name ?? "Unknown company"}</span>
             {app.jobs.location && <span>· {app.jobs.location}</span>}
-            <span className="chip capitalize">{app.status}</span>
+            <select
+              value={app.status}
+              onChange={(e) => setStatus(e.target.value as ApplicationStatus)}
+              className="select h-7 w-auto text-xs"
+              aria-label="Status"
+            >
+              {APPLICATION_STATUSES.map((s) => <option key={s} value={s}>{STATUS_LABELS[s]}</option>)}
+            </select>
+            <span className="inline-flex items-center gap-1.5">
+              <input
+                type="date"
+                value={due ? londonDay(due) : ""}
+                onChange={(e) => setDeadline(e.target.value)}
+                className="input h-7 w-[8.75rem] px-2 text-xs"
+                aria-label="Deadline"
+                title={due && !app.deadline ? "Closing date from the listing" : "Your deadline"}
+              />
+              {days !== null && (
+                <span className={`chip ${dueChip(days)}`}><ClockIcon size={12} />{dueLabel(days)}</span>
+              )}
+            </span>
             {app.jobs.url && (
               <a href={app.jobs.url} target="_blank" rel="noreferrer" className="link inline-flex items-center gap-0.5 text-sm">
                 Listing <ArrowUpRightIcon size={13} />
